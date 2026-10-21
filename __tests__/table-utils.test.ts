@@ -1,0 +1,677 @@
+import { render } from "./helpers/testing-library-vue";
+import { marked } from "marked";
+import rehypeRaw from "rehype-raw";
+import remarkGfm from "remark-gfm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Markdown } from "../lib/markdown";
+import {
+  escapeMarkdownTableCell,
+  extractTableDataFromElement,
+  getTableCsvSeparator,
+  type TableData,
+  tableDataToCSV,
+  tableDataToMarkdown,
+  tableDataToTSV,
+} from "../lib/table/utils";
+
+describe("Table Utils", () => {
+  describe("extractTableDataFromElement", () => {
+    let tableElement: HTMLTableElement;
+
+    beforeEach(() => {
+      tableElement = document.createElement("table");
+    });
+
+    it("should extract headers and rows from a table", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Age</th>
+            <th>City</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>John</td>
+            <td>30</td>
+            <td>New York</td>
+          </tr>
+          <tr>
+            <td>Jane</td>
+            <td>25</td>
+            <td>London</td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.headers).toEqual(["Name", "Age", "City"]);
+      expect(result.rows).toEqual([
+        ["John", "30", "New York"],
+        ["Jane", "25", "London"],
+      ]);
+    });
+
+    it("should handle empty cells", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>Col1</th>
+            <th>Col2</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Value</td>
+            <td></td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.headers).toEqual(["Col1", "Col2"]);
+      expect(result.rows).toEqual([["Value", ""]]);
+    });
+
+    it("should trim whitespace from cells", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>  Header  </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>  Data  </td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.headers).toEqual(["Header"]);
+      expect(result.rows).toEqual([["Data"]]);
+    });
+
+    it("should handle tables with no tbody", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>Header</th>
+          </tr>
+        </thead>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.headers).toEqual(["Header"]);
+      expect(result.rows).toEqual([]);
+    });
+
+    it("should handle tables with no thead", () => {
+      tableElement.innerHTML = `
+        <tbody>
+          <tr>
+            <td>Data</td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.headers).toEqual([]);
+      expect(result.rows).toEqual([["Data"]]);
+    });
+
+    it("should convert <br> elements to newlines in cells", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>Header</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Paragraph one.<br>Paragraph two.</td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.rows).toEqual([["Paragraph one.\nParagraph two."]]);
+    });
+
+    it("should convert multiple <br> elements to newlines", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Line A<br>Line B<br>Line C</td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.rows).toEqual([["Line A\nLine B\nLine C"]]);
+    });
+
+    it("should convert <br> inside nested elements to newlines", () => {
+      tableElement.innerHTML = `
+        <thead>
+          <tr>
+            <th>Header<br>with break</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Bold</strong><br><em>Italic</em></td>
+          </tr>
+        </tbody>
+      `;
+
+      const result = extractTableDataFromElement(tableElement);
+
+      expect(result.headers).toEqual(["Header\nwith break"]);
+      expect(result.rows).toEqual([["Bold\nItalic"]]);
+    });
+  });
+
+  describe("tableDataToCSV", () => {
+    it("should convert simple table data to CSV", () => {
+      const data: TableData = {
+        headers: ["Name", "Age", "City"],
+        rows: [
+          ["John", "30", "New York"],
+          ["Jane", "25", "London"],
+        ],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe("Name,Age,City\nJohn,30,New York\nJane,25,London");
+    });
+
+    it("should escape commas in values", () => {
+      const data: TableData = {
+        headers: ["Name", "Location"],
+        rows: [["John", "New York, USA"]],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe('Name,Location\nJohn,"New York, USA"');
+    });
+
+    it("should escape quotes and separator together", () => {
+      const data: TableData = {
+        headers: ["Message"],
+        rows: [['Hello, "World"']],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe('Message\n"Hello, ""World"""');
+    });
+
+    it("should support semicolon separators", () => {
+      const data: TableData = {
+        headers: ["Name", "Location"],
+        rows: [["Aradhya", "New York; USA"]],
+      };
+
+      const result = tableDataToCSV(data, ";");
+
+      expect(result).toBe('Name;Location\nAradhya;"New York; USA"');
+    });
+
+    it("should use semicolon separator in auto mode for comma-decimal locales", () => {
+      const numberFormatSpy = vi.spyOn(Intl, "NumberFormat").mockImplementation(
+        () =>
+          ({
+            format: () => "1,1",
+          }) as Intl.NumberFormat,
+      );
+
+      const data: TableData = {
+        headers: ["Name", "City"],
+        rows: [["John", "Paris; France"]],
+      };
+
+      const result = tableDataToCSV(data, "auto");
+
+      expect(result).toBe('Name;City\nJohn;"Paris; France"');
+
+      numberFormatSpy.mockRestore();
+    });
+
+    it("should escape carriage returns", () => {
+      const data: TableData = {
+        headers: ["Text"],
+        rows: [["line1\rline2"]],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe('Text\n"line1\rline2"');
+    });
+
+    it("should escape quotes in values", () => {
+      const data: TableData = {
+        headers: ["Quote"],
+        rows: [['He said "Hello"']],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe('Quote\n"He said ""Hello"""');
+    });
+
+    it("should escape newlines in values", () => {
+      const data: TableData = {
+        headers: ["Text"],
+        rows: [["Line 1\nLine 2"]],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe('Text\n"Line 1\nLine 2"');
+    });
+
+    it("should support tab separators", () => {
+      const data: TableData = {
+        headers: ["Name", "Note"],
+        rows: [["Mike", "A\tB"]],
+      };
+
+      const result = tableDataToCSV(data, "\t");
+
+      expect(result).toBe('Name\tNote\nMike\t"A\tB"');
+    });
+
+    it("should not use separators as its single column", () => {
+      const data: TableData = {
+        headers: ["Name"],
+        rows: [["John"]],
+      };
+
+      const result = tableDataToCSV(data, ";");
+
+      expect(result).toBe("Name\nJohn");
+    });
+
+    it("should handle empty headers", () => {
+      const data: TableData = {
+        headers: [],
+        rows: [["Value1", "Value2"]],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe("Value1,Value2");
+    });
+
+    it("should handle empty rows", () => {
+      const data: TableData = {
+        headers: ["Header1", "Header2"],
+        rows: [],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe("Header1,Header2");
+    });
+
+    it("should handle empty values", () => {
+      const data: TableData = {
+        headers: ["Name", "Age"],
+        rows: [["", ""]],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe("Name,Age\n,");
+    });
+
+    it("should handle empty tables", () => {
+      const data: TableData = {
+        headers: [],
+        rows: [],
+      };
+
+      const result = tableDataToCSV(data);
+
+      expect(result).toBe("");
+    });
+  });
+
+  describe("getTableCsvSeparator", () => {
+    it("returns comma when controls is a boolean", () => {
+      expect(getTableCsvSeparator(true)).toBe(",");
+      expect(getTableCsvSeparator(false)).toBe(",");
+    });
+
+    it("returns comma when table is missing or a boolean", () => {
+      expect(getTableCsvSeparator({})).toBe(",");
+      expect(getTableCsvSeparator({ table: true })).toBe(",");
+      expect(getTableCsvSeparator({ table: false })).toBe(",");
+    });
+
+    it("returns comma when csvSeparator is not set", () => {
+      expect(getTableCsvSeparator({ table: {} })).toBe(",");
+    });
+
+    it("returns the configured separator", () => {
+      expect(getTableCsvSeparator({ table: { csvSeparator: ";" } })).toBe(";");
+      expect(getTableCsvSeparator({ table: { csvSeparator: "\t" } })).toBe(
+        "\t",
+      );
+      expect(getTableCsvSeparator({ table: { csvSeparator: "auto" } })).toBe(
+        "auto",
+      );
+    });
+  });
+
+  describe("tableDataToTSV", () => {
+    it("should convert simple table data to TSV", () => {
+      const data: TableData = {
+        headers: ["Name", "Age", "City"],
+        rows: [
+          ["John", "30", "New York"],
+          ["Jane", "25", "London"],
+        ],
+      };
+
+      const result = tableDataToTSV(data);
+
+      expect(result).toBe(
+        "Name\tAge\tCity\nJohn\t30\tNew York\nJane\t25\tLondon",
+      );
+    });
+
+    it("should escape tabs in values", () => {
+      const data: TableData = {
+        headers: ["Text"],
+        rows: [["Value\tWith\tTabs"]],
+      };
+
+      const result = tableDataToTSV(data);
+
+      expect(result).toBe("Text\nValue\\tWith\\tTabs");
+    });
+
+    it("should escape newlines in values", () => {
+      const data: TableData = {
+        headers: ["Text"],
+        rows: [["Line1\nLine2"]],
+      };
+
+      const result = tableDataToTSV(data);
+
+      expect(result).toBe("Text\nLine1\\nLine2");
+    });
+
+    it("should escape carriage returns in values", () => {
+      const data: TableData = {
+        headers: ["Text"],
+        rows: [["Value\rWith\rCR"]],
+      };
+
+      const result = tableDataToTSV(data);
+
+      expect(result).toBe("Text\nValue\\rWith\\rCR");
+    });
+
+    it("should handle empty headers", () => {
+      const data: TableData = {
+        headers: [],
+        rows: [["Value1", "Value2"]],
+      };
+
+      const result = tableDataToTSV(data);
+
+      expect(result).toBe("Value1\tValue2");
+    });
+
+    it("should handle empty rows", () => {
+      const data: TableData = {
+        headers: ["Header1", "Header2"],
+        rows: [],
+      };
+
+      const result = tableDataToTSV(data);
+
+      expect(result).toBe("Header1\tHeader2");
+    });
+  });
+
+  describe("escapeMarkdownTableCell", () => {
+    it("should escape pipes", () => {
+      const result = escapeMarkdownTableCell("Column | Value");
+      expect(result).toBe("Column \\| Value");
+    });
+
+    it("should escape backslashes", () => {
+      const result = escapeMarkdownTableCell("Path\\To\\File");
+      expect(result).toBe("Path\\\\To\\\\File");
+    });
+
+    it("should escape backslashes before pipes", () => {
+      const result = escapeMarkdownTableCell("A\\|B");
+      expect(result).toBe("A\\\\\\|B");
+    });
+
+    it("should handle strings with no special characters", () => {
+      const result = escapeMarkdownTableCell("Normal text");
+      expect(result).toBe("Normal text");
+    });
+
+    it("should handle empty strings", () => {
+      const result = escapeMarkdownTableCell("");
+      expect(result).toBe("");
+    });
+
+    it("should convert newlines to <br>", () => {
+      const result = escapeMarkdownTableCell("Paragraph one.\nParagraph two.");
+      expect(result).toBe("Paragraph one.<br>Paragraph two.");
+    });
+
+    it("should escape HTML-sensitive characters as entities", () => {
+      expect(escapeMarkdownTableCell("Array<string>")).toBe(
+        "Array&lt;string&gt;",
+      );
+      expect(escapeMarkdownTableCell("&copy;")).toBe("&amp;copy;");
+      expect(escapeMarkdownTableCell("a<br>b")).toBe("a&lt;br&gt;b");
+      expect(escapeMarkdownTableCell("x < y & z > w")).toBe(
+        "x &lt; y &amp; z &gt; w",
+      );
+    });
+  });
+
+  describe("tableDataToMarkdown", () => {
+    it("should preserve literal HTML and entities when rendered again", () => {
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead><tr><th>Type &lt;T&gt;</th><th>Entities</th></tr></thead>
+        <tbody><tr>
+          <td><code>Array&lt;string&gt;</code></td>
+          <td>&amp;copy; and &amp;#124;</td>
+        </tr></tbody>
+      `;
+      const data = extractTableDataFromElement(table);
+      const markdown = tableDataToMarkdown(data);
+      const container = document.createElement("div");
+      container.innerHTML = marked.parse(markdown, { async: false });
+      const restoredTable = container.querySelector(
+        "table",
+      ) as HTMLTableElement;
+
+      expect(extractTableDataFromElement(restoredTable)).toEqual(data);
+    });
+
+    it("should preserve literal HTML and entities via Streamdown Markdown", () => {
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead><tr><th>Type &lt;T&gt;</th><th>Entities</th></tr></thead>
+        <tbody><tr>
+          <td><code>Array&lt;string&gt;</code></td>
+          <td>&amp;copy; and &amp;#124;</td>
+        </tr></tbody>
+      `;
+      const data = extractTableDataFromElement(table);
+      const markdown = tableDataToMarkdown(data);
+
+      // Same fixture through Streamdown's production pipeline (remark-gfm + rehype-raw)
+      const { container } = render(
+        Markdown({
+          children: markdown,
+          remarkPlugins: [remarkGfm],
+          rehypePlugins: [rehypeRaw],
+        }),
+      );
+      const restoredTable = container.querySelector(
+        "table",
+      ) as HTMLTableElement;
+
+      expect(extractTableDataFromElement(restoredTable)).toEqual(data);
+    });
+
+    it("documents that other Markdown syntax is still re-parsed on render", () => {
+      // Pre-existing limitation: export escapes HTML (&/< />) and table syntax
+      // (|, \, newlines), but not general Markdown metacharacters. So pasted
+      // cells like **bold**, `code`, and [link](url) re-interpret on render.
+      // Broader metachar escaping is out of scope for the HTML-literal fix.
+      const data: TableData = {
+        headers: ["Cell"],
+        rows: [["**bold**"], ["`code`"], ["[link](https://example.com)"]],
+      };
+      const markdown = tableDataToMarkdown(data);
+
+      expect(markdown).toContain("**bold**");
+      expect(markdown).toContain("`code`");
+      expect(markdown).toContain("[link](https://example.com)");
+
+      const { container } = render(
+        Markdown({
+          children: markdown,
+          remarkPlugins: [remarkGfm],
+          rehypePlugins: [rehypeRaw],
+        }),
+      );
+      const cells = [...container.querySelectorAll("tbody td")].map(
+        (cell) => cell.innerHTML,
+      );
+
+      expect(cells[0]).toContain("<strong>");
+      expect(cells[1]).toContain("<code>");
+      expect(cells[2]).toContain("<a ");
+    });
+
+    it("should convert simple table data to Markdown", () => {
+      const data: TableData = {
+        headers: ["Name", "Age", "City"],
+        rows: [
+          ["John", "30", "New York"],
+          ["Jane", "25", "London"],
+        ],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe(
+        "| Name | Age | City |\n| --- | --- | --- |\n| John | 30 | New York |\n| Jane | 25 | London |",
+      );
+    });
+
+    it("should escape pipes in values", () => {
+      const data: TableData = {
+        headers: ["Header"],
+        rows: [["Value | With | Pipes"]],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe("| Header |\n| --- |\n| Value \\| With \\| Pipes |");
+    });
+
+    it("should escape backslashes in values", () => {
+      const data: TableData = {
+        headers: ["Path"],
+        rows: [["C:\\Users\\Name"]],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe("| Path |\n| --- |\n| C:\\\\Users\\\\Name |");
+    });
+
+    it("should pad rows with empty strings if shorter than headers", () => {
+      const data: TableData = {
+        headers: ["Col1", "Col2", "Col3"],
+        rows: [["A", "B"]],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe(
+        "| Col1 | Col2 | Col3 |\n| --- | --- | --- |\n| A | B |  |",
+      );
+    });
+
+    it("should return empty string if no headers", () => {
+      const data: TableData = {
+        headers: [],
+        rows: [["Value1", "Value2"]],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe("");
+    });
+
+    it("should handle empty rows", () => {
+      const data: TableData = {
+        headers: ["Header1", "Header2"],
+        rows: [],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe("| Header1 | Header2 |\n| --- | --- |");
+    });
+
+    it("should handle rows with more cells than headers", () => {
+      const data: TableData = {
+        headers: ["Col1", "Col2"],
+        rows: [["A", "B", "C", "D"]],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      // The function only includes cells up to the number of headers
+      // Extra cells are ignored during the mapping
+      expect(result).toBe("| Col1 | Col2 |\n| --- | --- |\n| A | B | C | D |");
+    });
+
+    it("should convert cell newlines to <br> for single-line table rows", () => {
+      const data: TableData = {
+        headers: ["Description"],
+        rows: [["Paragraph one.\nParagraph two."]],
+      };
+
+      const result = tableDataToMarkdown(data);
+
+      expect(result).toBe(
+        "| Description |\n| --- |\n| Paragraph one.<br>Paragraph two. |",
+      );
+    });
+  });
+});

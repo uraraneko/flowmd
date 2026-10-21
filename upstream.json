@@ -1,0 +1,29 @@
+{
+  "repository": "https://github.com/vercel/streamdown",
+  "commit": "a9fb2a2c2431e5e32af920795b9c49c075ee7c6e",
+  "packageVersion": "2.7.1",
+  "vueBase": {
+    "repository": "https://github.com/brucewar/streamdown-vue",
+    "commit": "de195639aaa81b20fe8b7d6b4ba73940b80a9fff"
+  },
+  "unchangedCoreFiles": [
+    "animate.ts",
+    "detect-direction.ts",
+    "incomplete-code-utils.ts",
+    "preprocess-custom-tags.ts",
+    "preprocess-literal-tag-content.ts",
+    "scroll-lock.ts",
+    "utils.ts",
+    "table/utils.ts",
+    "mermaid/utils.ts",
+    "remark/code-meta.ts",
+    "remark/escape-html.ts",
+    "remark/disable-autolink-protocols.ts",
+    "rehype/block-direction.ts",
+    "rehype/literal-tag-content.ts",
+    "controls.ts",
+    "shiki-types.ts",
+    "portal.ts",
+    "parse-blocks.ts"
+  ]
+}

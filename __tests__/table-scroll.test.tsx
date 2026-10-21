@@ -1,0 +1,448 @@
+import { render } from "./helpers/testing-library-vue";
+import type { VNodeChild as ReactNode } from "vue";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StreamdownContext, type StreamdownContextType } from "../index";
+import { CodeBlockBody } from "../lib/code-block/body";
+import { Table } from "../lib/table";
+import { resolveMaxHeight } from "../lib/use-pinned-scroll";
+
+const defaultContext: StreamdownContextType = {
+  codeBlockMaxHeight: 400,
+  controls: false,
+  isAnimating: false,
+  lineNumbers: true,
+  linkSafety: { enabled: true },
+  mermaid: undefined,
+  mode: "streaming",
+  shikiTheme: ["github-light", "github-dark"],
+  tableMaxHeight: 300,
+};
+
+function renderWithContext(
+  ui: ReactNode,
+  ctx: Partial<StreamdownContextType> = {},
+) {
+  return render(
+    <StreamdownContext.Provider value={{ ...defaultContext, ...ctx }}>
+      {ui}
+    </StreamdownContext.Provider>,
+  );
+}
+
+const mockScrollMetrics = (
+  el: HTMLElement,
+  metrics: {
+    scrollHeight: number;
+    clientHeight: number;
+    scrollTop?: number;
+  },
+) => {
+  Object.defineProperty(el, "scrollHeight", {
+    value: metrics.scrollHeight,
+    configurable: true,
+  });
+  Object.defineProperty(el, "clientHeight", {
+    value: metrics.clientHeight,
+    configurable: true,
+  });
+  Object.defineProperty(el, "scrollTop", {
+    value: metrics.scrollTop ?? 0,
+    configurable: true,
+    writable: true,
+  });
+};
+
+beforeEach(() => {
+  vi.useFakeTimers({
+    toFake: ["requestAnimationFrame", "cancelAnimationFrame"],
+  });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("resolveMaxHeight", () => {
+  it("converts numbers to px and passes strings through", async () => {
+    expect(resolveMaxHeight(400)).toBe("400px");
+    expect(resolveMaxHeight("50vh")).toBe("50vh");
+  });
+
+  it("disables for 0, Infinity, and none", async () => {
+    expect(resolveMaxHeight(0)).toBeUndefined();
+    expect(resolveMaxHeight(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(resolveMaxHeight("0")).toBeUndefined();
+    expect(resolveMaxHeight("none")).toBeUndefined();
+    expect(resolveMaxHeight(undefined)).toBeUndefined();
+  });
+});
+
+describe("Table scroll", () => {
+  it("renders inner scroll div with maxHeight style when maxHeight provided", async () => {
+    const { container } = renderWithContext(
+      <Table maxHeight={300}>
+        <tbody>
+          <tr>
+            <td>cell</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    );
+    expect(scrollDiv).toBeTruthy();
+    expect(scrollDiv?.getAttribute("style")).toContain("max-height");
+  });
+
+  it("accepts string maxHeight value", async () => {
+    const { container } = renderWithContext(
+      <Table maxHeight="50vh">
+        <tbody>
+          <tr>
+            <td>cell</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    );
+    expect(scrollDiv?.getAttribute("style")).toContain("50vh");
+  });
+
+  it("does not set maxHeight style when maxHeight is undefined", async () => {
+    const { container } = renderWithContext(
+      <Table>
+        <tbody>
+          <tr>
+            <td>cell</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    );
+    expect(scrollDiv?.getAttribute("style") ?? "").not.toContain("max-height");
+  });
+
+  it("does not set maxHeight style when maxHeight is 0", async () => {
+    const { container } = renderWithContext(
+      <Table maxHeight={0}>
+        <tbody>
+          <tr>
+            <td>cell</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    );
+    expect(scrollDiv?.getAttribute("style") ?? "").not.toContain("max-height");
+  });
+
+  it("calls scrollTo on children update when isAnimating and pinned", async () => {
+    const scrollToSpy = vi.fn();
+
+    const { container, rerender } = renderWithContext(
+      <Table maxHeight={300}>
+        <tbody>
+          <tr>
+            <td>row1</td>
+          </tr>
+        </tbody>
+      </Table>,
+      { isAnimating: true },
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    ) as HTMLElement;
+
+    mockScrollMetrics(scrollDiv, {
+      scrollHeight: 1000,
+      clientHeight: 300,
+      scrollTop: 700,
+    });
+    scrollDiv.scrollTo = scrollToSpy;
+
+    await rerender(
+      <StreamdownContext.Provider
+        value={{ ...defaultContext, isAnimating: true }}
+      >
+        <Table maxHeight={300}>
+          <tbody>
+            <tr>
+              <td>row1</td>
+            </tr>
+            <tr>
+              <td>row2</td>
+            </tr>
+          </tbody>
+        </Table>
+      </StreamdownContext.Provider>,
+    );
+    vi.advanceTimersToNextFrame();
+
+    expect(scrollToSpy).toHaveBeenCalledWith({
+      top: expect.any(Number),
+      behavior: "instant",
+    });
+  });
+
+  it("does not call scrollTo when isAnimating is false", async () => {
+    const scrollToSpy = vi.fn();
+
+    const { container, rerender } = renderWithContext(
+      <Table maxHeight={300}>
+        <tbody>
+          <tr>
+            <td>row1</td>
+          </tr>
+        </tbody>
+      </Table>,
+      { isAnimating: false },
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    ) as HTMLElement;
+
+    mockScrollMetrics(scrollDiv, {
+      scrollHeight: 1000,
+      clientHeight: 300,
+    });
+    scrollDiv.scrollTo = scrollToSpy;
+
+    await rerender(
+      <StreamdownContext.Provider
+        value={{ ...defaultContext, isAnimating: false }}
+      >
+        <Table maxHeight={300}>
+          <tbody>
+            <tr>
+              <td>row1</td>
+            </tr>
+            <tr>
+              <td>row2</td>
+            </tr>
+          </tbody>
+        </Table>
+      </StreamdownContext.Provider>,
+    );
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-scroll after the user scrolls up", async () => {
+    const scrollToSpy = vi.fn();
+
+    const { container, rerender } = renderWithContext(
+      <Table maxHeight={300}>
+        <tbody>
+          <tr>
+            <td>row1</td>
+          </tr>
+        </tbody>
+      </Table>,
+      { isAnimating: true },
+    );
+
+    const scrollDiv = container.querySelector(
+      '[data-streamdown="table-wrapper"] > div:last-child',
+    ) as HTMLElement;
+
+    mockScrollMetrics(scrollDiv, {
+      scrollHeight: 1000,
+      clientHeight: 300,
+      scrollTop: 100,
+    });
+    scrollDiv.scrollTo = scrollToSpy;
+
+    // User scrolled up — leave bottom, clearing the pin
+    scrollDiv.dispatchEvent(new Event("scroll"));
+
+    scrollToSpy.mockClear();
+
+    await rerender(
+      <StreamdownContext.Provider
+        value={{ ...defaultContext, isAnimating: true }}
+      >
+        <Table maxHeight={300}>
+          <tbody>
+            <tr>
+              <td>row1</td>
+            </tr>
+            <tr>
+              <td>row2</td>
+            </tr>
+          </tbody>
+        </Table>
+      </StreamdownContext.Provider>,
+    );
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("CodeBlockBody scroll", () => {
+  const baseResult = {
+    tokens: [[{ content: "const x = 1;", color: "#000" }]],
+    bg: "#fff",
+    fg: "#000",
+  };
+
+  it("applies maxHeight and keeps horizontal overflow", async () => {
+    const { container } = renderWithContext(
+      <CodeBlockBody language="js" maxHeight={400} result={baseResult} />,
+    );
+
+    const body = container.querySelector(
+      '[data-streamdown="code-block-body"]',
+    ) as HTMLElement;
+    expect(body.style.maxHeight).toBe("400px");
+    expect(body.className).toContain("overflow-y-auto");
+    expect(body.className).toContain("overflow-x-auto");
+  });
+
+  it("does not constrain height when maxHeight is Infinity", async () => {
+    const { container } = renderWithContext(
+      <CodeBlockBody
+        language="js"
+        maxHeight={Number.POSITIVE_INFINITY}
+        result={baseResult}
+      />,
+    );
+
+    const body = container.querySelector(
+      '[data-streamdown="code-block-body"]',
+    ) as HTMLElement;
+    expect(body.style.maxHeight).toBe("");
+    expect(body.className).toContain("overflow-x-auto");
+    expect(body.className).not.toContain("overflow-y-auto");
+  });
+
+  it("auto-scrolls when result updates during animation", async () => {
+    const scrollToSpy = vi.fn();
+    const { container, rerender } = renderWithContext(
+      <CodeBlockBody language="js" maxHeight={200} result={baseResult} />,
+      { isAnimating: true },
+    );
+
+    const body = container.querySelector(
+      '[data-streamdown="code-block-body"]',
+    ) as HTMLElement;
+    mockScrollMetrics(body, {
+      scrollHeight: 800,
+      clientHeight: 200,
+      scrollTop: 600,
+    });
+    body.scrollTo = scrollToSpy;
+
+    const nextResult = {
+      ...baseResult,
+      tokens: [
+        [{ content: "const x = 1;", color: "#000" }],
+        [{ content: "const y = 2;", color: "#000" }],
+      ],
+    };
+
+    await rerender(
+      <StreamdownContext.Provider
+        value={{ ...defaultContext, isAnimating: true }}
+      >
+        <CodeBlockBody language="js" maxHeight={200} result={nextResult} />
+      </StreamdownContext.Provider>,
+    );
+    vi.advanceTimersToNextFrame();
+
+    expect(scrollToSpy).toHaveBeenCalledWith({
+      top: expect.any(Number),
+      behavior: "instant",
+    });
+  });
+});
+
+describe("pinned scroll frames", () => {
+  const resultWithLines = (count: number) => ({
+    tokens: Array.from({ length: count }, (_, line) => [
+      { content: `line ${line}`, color: "#000" },
+    ]),
+    bg: "#fff",
+    fg: "#000",
+  });
+
+  const renderStreamingBody = () => {
+    const view = renderWithContext(
+      <CodeBlockBody
+        language="js"
+        maxHeight={200}
+        result={resultWithLines(1)}
+      />,
+      { isAnimating: true },
+    );
+    const body = view.container.querySelector(
+      '[data-streamdown="code-block-body"]',
+    ) as HTMLElement;
+    mockScrollMetrics(body, {
+      scrollHeight: 800,
+      clientHeight: 200,
+      scrollTop: 600,
+    });
+    const scrollToSpy = vi.fn();
+    body.scrollTo = scrollToSpy;
+    const update = (lines: number, isAnimating = true) =>
+      view.rerender(
+        <StreamdownContext.Provider value={{ ...defaultContext, isAnimating }}>
+          <CodeBlockBody
+            language="js"
+            maxHeight={200}
+            result={resultWithLines(lines)}
+          />
+        </StreamdownContext.Provider>,
+      );
+    return { body, scrollToSpy, update };
+  };
+
+  it("pins once for several updates within a frame", async () => {
+    const { scrollToSpy, update } = renderStreamingBody();
+    await update(2);
+    await update(3);
+    await update(4);
+    expect(scrollToSpy).not.toHaveBeenCalled();
+
+    vi.advanceTimersToNextFrame();
+    expect(scrollToSpy).toHaveBeenCalledTimes(1);
+
+    await update(5);
+    vi.advanceTimersToNextFrame();
+    expect(scrollToSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("still pins the last update when the stream ends before the frame", async () => {
+    const { scrollToSpy, update } = renderStreamingBody();
+    vi.advanceTimersToNextFrame();
+    scrollToSpy.mockClear();
+
+    await update(2);
+    await update(2, false);
+    vi.advanceTimersToNextFrame();
+    expect(scrollToSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a pending pin after the user scrolls up", async () => {
+    const { body, scrollToSpy, update } = renderStreamingBody();
+    await update(2);
+    body.scrollTop = 100;
+    body.dispatchEvent(new Event("scroll"));
+
+    vi.advanceTimersToNextFrame();
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+});

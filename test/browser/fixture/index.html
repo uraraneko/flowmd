@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Streamdown React / Vue parity</title>
+  </head>
+  <body>
+    <header>
+      <h1>Streamdown reference comparison</h1>
+      <p>
+        The same input and options are rendered by the pinned React reference
+        and the Vue port.
+      </p>
+    </header>
+    <main>
+      <section>
+        <h2>React reference</h2>
+        <div id="react"></div>
+        <div id="react-overlays"></div>
+      </section>
+      <section>
+        <h2>Vue port</h2>
+        <div id="vue"></div>
+        <div id="vue-overlays"></div>
+      </section>
+    </main>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

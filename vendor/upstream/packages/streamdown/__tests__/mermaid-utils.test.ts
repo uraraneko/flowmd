@@ -1,0 +1,205 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getMermaidSvgSize,
+  normalizeMermaidInlineSvg,
+  serializeSvgForDownload,
+  svgToPngBlob,
+} from "../lib/mermaid/utils";
+
+const BASE64_SVG_DATA_URL_REGEX = /^data:image\/svg\+xml;base64,/;
+const RAW_BR_TAG_REGEX = /<br(?:\s[^/>]*)?>/;
+
+describe("serializeSvgForDownload", () => {
+  it("serializes HTML-style SVG markup as XML", () => {
+    const svgString =
+      '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div>Line 1<br>Line 2</div></foreignObject></svg>';
+
+    const serialized = serializeSvgForDownload(svgString);
+
+    expect(serialized).toContain("<svg");
+    expect(serialized).toContain("Line 1");
+    expect(serialized).toContain("Line 2");
+    expect(serialized).not.toMatch(RAW_BR_TAG_REGEX);
+  });
+
+  it("returns the original string when no SVG element exists", () => {
+    const html = "<div>Not an SVG</div>";
+
+    expect(serializeSvgForDownload(html)).toBe(html);
+  });
+});
+
+describe("svgToPngBlob", () => {
+  let mockCanvas: any;
+  let mockCtx: any;
+  let mockImage: any;
+  let originalImage: typeof Image;
+
+  beforeEach(() => {
+    mockCtx = {
+      drawImage: vi.fn(),
+    };
+
+    mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn().mockReturnValue(mockCtx),
+      toBlob: vi.fn(),
+    };
+
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "canvas") {
+        return mockCanvas;
+      }
+      return document.createElement(tag);
+    });
+
+    // Mock Image constructor properly
+    mockImage = {
+      width: 100,
+      height: 50,
+      crossOrigin: "",
+      src: "",
+      onload: null as any,
+      onerror: null as any,
+    };
+
+    originalImage = globalThis.Image;
+    globalThis.Image = class {
+      constructor() {
+        // biome-ignore lint/correctness/noConstructorReturn: need constructor mock to return shared mockImage
+        return mockImage;
+      }
+    } as any;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    globalThis.Image = originalImage;
+  });
+
+  it("should convert SVG to PNG blob", async () => {
+    const svgString = '<svg width="100" height="50"><text>Test</text></svg>';
+    const mockBlob = new Blob(["png data"], { type: "image/png" });
+
+    mockCanvas.toBlob.mockImplementation((cb: (blob: Blob | null) => void) => {
+      cb(mockBlob);
+    });
+
+    const promise = svgToPngBlob(svgString);
+
+    // Trigger image onload
+    mockImage.onload();
+
+    const result = await promise;
+    expect(result).toBe(mockBlob);
+    expect(mockCtx.drawImage).toHaveBeenCalled();
+    expect(mockCanvas.width).toBe(500); // 100 * 5 (default scale)
+    expect(mockCanvas.height).toBe(250); // 50 * 5 (default scale)
+  });
+
+  it("should use custom scale option", async () => {
+    const svgString = '<svg width="100" height="50"><text>Test</text></svg>';
+    const mockBlob = new Blob(["png data"], { type: "image/png" });
+
+    mockCanvas.toBlob.mockImplementation((cb: (blob: Blob | null) => void) => {
+      cb(mockBlob);
+    });
+
+    const promise = svgToPngBlob(svgString, { scale: 2 });
+
+    mockImage.onload();
+
+    const result = await promise;
+    expect(result).toBe(mockBlob);
+    expect(mockCanvas.width).toBe(200); // 100 * 2
+    expect(mockCanvas.height).toBe(100); // 50 * 2
+  });
+
+  it("should reject when canvas context is null", async () => {
+    const svgString = "<svg><text>Test</text></svg>";
+    mockCanvas.getContext.mockReturnValue(null);
+
+    const promise = svgToPngBlob(svgString);
+    mockImage.onload();
+
+    await expect(promise).rejects.toThrow(
+      "Failed to create 2D canvas context for PNG export"
+    );
+  });
+
+  it("should reject when toBlob returns null", async () => {
+    const svgString = "<svg><text>Test</text></svg>";
+    mockCanvas.toBlob.mockImplementation((cb: (blob: Blob | null) => void) => {
+      cb(null);
+    });
+
+    const promise = svgToPngBlob(svgString);
+    mockImage.onload();
+
+    await expect(promise).rejects.toThrow("Failed to create PNG blob");
+  });
+
+  it("should reject when image fails to load", async () => {
+    const svgString = "<svg><text>Test</text></svg>";
+
+    const promise = svgToPngBlob(svgString);
+    mockImage.onerror();
+
+    await expect(promise).rejects.toThrow("Failed to load SVG image");
+  });
+
+  it("should set crossOrigin on image", () => {
+    svgToPngBlob("<svg></svg>");
+    expect(mockImage.crossOrigin).toBe("anonymous");
+  });
+
+  it("should encode SVG as base64 data URL", () => {
+    svgToPngBlob("<svg><text>Hello</text></svg>");
+    expect(mockImage.src).toMatch(BASE64_SVG_DATA_URL_REGEX);
+  });
+});
+
+describe("normalizeMermaidInlineSvg", () => {
+  it("should preserve source when no SVG element exists", () => {
+    const input = "<div>not svg</div>";
+    expect(normalizeMermaidInlineSvg(input)).toBe(input);
+  });
+
+  it("should preserve source when viewBox is missing", () => {
+    const input = '<svg width="100%" height="100%"></svg>';
+    expect(normalizeMermaidInlineSvg(input)).toBe(input);
+  });
+
+  it("should normalize width/height/maxWidth from viewBox", () => {
+    const input =
+      '<svg width="100%" style="max-width: 3000px;" viewBox="0 0 3000 800"><text>Test</text></svg>';
+
+    const output = normalizeMermaidInlineSvg(input);
+    const doc = new DOMParser().parseFromString(output, "image/svg+xml");
+    const svg = doc.querySelector("svg");
+
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute("width")).toBe("3000");
+    expect(svg?.getAttribute("height")).toBe("800");
+    const style = svg?.getAttribute("style") ?? "";
+    expect(style).toContain("width:3000px");
+    expect(style).toContain("height:800px");
+    expect(style).toContain("max-width:none");
+  });
+});
+
+describe("getMermaidSvgSize", () => {
+  it("should return null when svg is missing", () => {
+    expect(getMermaidSvgSize("<div></div>")).toBeNull();
+  });
+
+  it("should return null when viewBox is missing", () => {
+    expect(getMermaidSvgSize('<svg width="100%"></svg>')).toBeNull();
+  });
+
+  it("should parse width and height from viewBox", () => {
+    const size = getMermaidSvgSize('<svg viewBox="0 0 3400 1200"></svg>');
+    expect(size).toEqual({ height: 1200, width: 3400 });
+  });
+});

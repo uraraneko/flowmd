@@ -1,0 +1,11 @@
+Streamdown Vue includes adaptations of:
+
+Vercel Streamdown, Copyright 2023 Vercel, Inc., Apache-2.0
+https://github.com/vercel/streamdown
+Pinned commit: a9fb2a2c2431e5e32af920795b9c49c075ee7c6e
+
+brucewar/streamdown-vue, Copyright 2026 brucewar, Apache-2.0
+https://github.com/brucewar/streamdown-vue
+Pinned commit: de195639aaa81b20fe8b7d6b4ba73940b80a9fff
+
+Files are modified for native Vue rendering and alignment with the pinned upstream.

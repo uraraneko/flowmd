@@ -1,0 +1,43 @@
+# @streamdown/code
+
+## 2.0.0
+
+### Major Changes
+
+- db6fefc: Upgrade Shiki to v4. Node.js 20 or newer is now required when using `@streamdown/code`.
+
+### Patch Changes
+
+- 0ea9e64: Tokenize only the new lines of a code block while it streams instead of re-tokenizing the whole block on every update.
+- 4ec5639: Bound the code highlight cache. Results of streaming code blocks are no longer cached (each is superseded by the next update), and finished code blocks are kept in a least-recently-used cache bounded by their size (tokens, lines and characters) and by a limit of 5,000 results. Lookups compare the full code, so blocks that differ only in the middle no longer share tokens. A code block also ignores highlight results for code it has already moved past.
+
+## 1.1.1
+
+### Patch Changes
+
+- 651873d: Fall back to plain text highlighting when the code block language identifier is unknown or truncated mid-stream, preventing Shiki from throwing on unsupported language names.
+
+## 1.1.0
+
+### Minor Changes
+
+- 01d27e9: Add support for custom Shiki themes via a `themes` option on `createCodePlugin`, accepting a `[light, dark]` pair of bundled theme names or full theme registration objects.
+
+## 1.0.3
+
+### Patch Changes
+
+- c597336: Use JS engine
+
+## 1.0.2
+
+### Patch Changes
+
+- c995fb7: Add bundled-language aliases for common JavaScript, TypeScript, and shell code fence labels.
+- 6b42a85: Remove CJS builds
+
+## 1.0.1
+
+### Patch Changes
+
+- 0b80aed: Plugins

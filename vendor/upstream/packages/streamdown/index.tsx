@@ -1,0 +1,1244 @@
+"use client";
+
+import {
+  type AriaAttributes,
+  type ComponentProps,
+  type ComponentType,
+  type CSSProperties,
+  createContext,
+  createElement,
+  type JSX,
+  memo,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+import { harden } from "rehype-harden";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import remend, { type RemendOptions } from "remend";
+import type { Pluggable } from "unified";
+import {
+  type AnimateOptions,
+  type AnimatePlugin,
+  type AnimateTimeline,
+  createAnimateTimeline,
+  createRenderAnimatePlugin,
+} from "./lib/animate";
+import { BlockIncompleteContext } from "./lib/block-incomplete-context";
+import { components as builtinComponents } from "./lib/components";
+import { detectTextDirection } from "./lib/detect-direction";
+import { type IconMap, IconProvider } from "./lib/icon-context";
+import { hasIncompleteCodeFence, hasTable } from "./lib/incomplete-code-utils";
+import {
+  type Components,
+  type ExtraProps,
+  Markdown,
+  type Options,
+} from "./lib/markdown";
+import { parseMarkdownIntoBlocks } from "./lib/parse-blocks";
+import { PluginContext } from "./lib/plugin-context";
+import type {
+  MermaidConfig,
+  PluginConfig,
+  ThemeInput,
+} from "./lib/plugin-types";
+import { PrefixContext } from "./lib/prefix-context";
+import { preprocessCustomTags } from "./lib/preprocess-custom-tags";
+import { preprocessLiteralTagContent } from "./lib/preprocess-literal-tag-content";
+import { rehypeBlockDirection } from "./lib/rehype/block-direction";
+import { rehypeLiteralTagContent } from "./lib/rehype/literal-tag-content";
+import { remarkCodeMeta } from "./lib/remark/code-meta";
+import { remarkDisableAutolinkProtocols } from "./lib/remark/disable-autolink-protocols";
+import type { CSVSeparator } from "./lib/table/utils";
+import {
+  defaultTranslations,
+  type StreamdownTranslations,
+  TranslationsContext,
+} from "./lib/translations-context";
+import { useCaretHost } from "./lib/use-caret-host";
+import { createCn } from "./lib/utils";
+
+export type { AnimateOptions } from "./lib/animate";
+// biome-ignore lint/performance/noBarrelFile: "required"
+export { createAnimatePlugin } from "./lib/animate";
+export { useIsCodeFenceIncomplete } from "./lib/block-incomplete-context";
+export { CodeBlock } from "./lib/code-block";
+export { CodeBlockContainer } from "./lib/code-block/container";
+export { CodeBlockCopyButton } from "./lib/code-block/copy-button";
+export { CodeBlockDownloadButton } from "./lib/code-block/download-button";
+export { CodeBlockHeader } from "./lib/code-block/header";
+export { CodeBlockSkeleton } from "./lib/code-block/skeleton";
+export { detectTextDirection } from "./lib/detect-direction";
+export type { IconMap } from "./lib/icon-context";
+
+export type {
+  AllowElement,
+  Components,
+  ExtraProps,
+  UrlTransform,
+} from "./lib/markdown";
+export { defaultUrlTransform } from "./lib/markdown";
+export { parseMarkdownIntoBlocks } from "./lib/parse-blocks";
+export type {
+  BundledLanguage,
+  BundledTheme,
+  CjkPlugin,
+  CodeHighlighterPlugin,
+  CustomRenderer,
+  CustomRendererProps,
+  DiagramPlugin,
+  HighlightOptions,
+  HighlightResult,
+  HighlightToken,
+  MathPlugin,
+  PluginConfig,
+  ThemeInput,
+  ThemeRegistrationAny,
+} from "./lib/plugin-types";
+export {
+  TableCopyDropdown,
+  type TableCopyDropdownProps,
+} from "./lib/table/copy-dropdown";
+export {
+  TableDownloadButton,
+  type TableDownloadButtonProps,
+  TableDownloadDropdown,
+  type TableDownloadDropdownProps,
+} from "./lib/table/download-dropdown";
+export {
+  type CSVSeparator,
+  escapeMarkdownTableCell,
+  extractTableDataFromElement,
+  type TableData,
+  tableDataToCSV,
+  tableDataToMarkdown,
+  tableDataToTSV,
+} from "./lib/table/utils";
+export type { StreamdownTranslations } from "./lib/translations-context";
+export { defaultTranslations } from "./lib/translations-context";
+
+/**
+ * Element component typed against the real intrinsic props + `ExtraProps`.
+ * Avoids `Components[K]`, whose string index signature collapses props into a
+ * useless intersection (e.g. HTMLHeadingElement & SVGSymbolElement).
+ */
+type DefaultElementComponent<K extends keyof JSX.IntrinsicElements> =
+  ComponentType<JSX.IntrinsicElements[K] & ExtraProps>;
+
+/**
+ * Built-in Streamdown components with known keys required.
+ * Prefer composing these inside custom `components` overrides instead of
+ * re-applying default styles by hand.
+ */
+export interface DefaultComponents {
+  a: DefaultElementComponent<"a">;
+  blockquote: DefaultElementComponent<"blockquote">;
+  code: DefaultElementComponent<"code">;
+  h1: DefaultElementComponent<"h1">;
+  h2: DefaultElementComponent<"h2">;
+  h3: DefaultElementComponent<"h3">;
+  h4: DefaultElementComponent<"h4">;
+  h5: DefaultElementComponent<"h5">;
+  h6: DefaultElementComponent<"h6">;
+  hr: DefaultElementComponent<"hr">;
+  img: DefaultElementComponent<"img">;
+  li: DefaultElementComponent<"li">;
+  ol: DefaultElementComponent<"ol">;
+  p: DefaultElementComponent<"p">;
+  pre: DefaultElementComponent<"pre">;
+  section: DefaultElementComponent<"section">;
+  strong: DefaultElementComponent<"strong">;
+  sub: DefaultElementComponent<"sub">;
+  sup: DefaultElementComponent<"sup">;
+  table: DefaultElementComponent<"table">;
+  tbody: DefaultElementComponent<"tbody">;
+  td: DefaultElementComponent<"td">;
+  th: DefaultElementComponent<"th">;
+  thead: DefaultElementComponent<"thead">;
+  tr: DefaultElementComponent<"tr">;
+  ul: DefaultElementComponent<"ul">;
+}
+
+export const defaultComponents = builtinComponents as DefaultComponents;
+
+// Matches lowercase HTML / custom tag names (first char is a-z)
+const LOWERCASE_TAG_PATTERN = /^[a-z]/;
+
+// Patterns for HTML indentation normalization
+// Matches if content starts with an HTML tag (possibly with leading whitespace)
+const HTML_BLOCK_START_PATTERN = /^[ \t]*<[\w!/?-]/;
+// Matches 4+ spaces/tabs before HTML tags at line starts
+const HTML_LINE_INDENT_PATTERN = /(^|\n)[ \t]{4,}(?=<[\w!/?-])/g;
+
+/**
+ * Normalizes indentation in HTML blocks to prevent Markdown parsers from
+ * treating indented HTML tags as code blocks (4+ spaces = code in Markdown).
+ *
+ * Useful when rendering AI-generated HTML content with nested tags that
+ * are indented for readability.
+ *
+ * @param content - The raw HTML/Markdown string to normalize
+ * @returns The normalized string with reduced indentation before HTML tags
+ */
+export const normalizeHtmlIndentation = (content: string): string => {
+  if (typeof content !== "string" || content.length === 0) {
+    return content;
+  }
+  // Only process if content starts with an HTML-like tag (possibly indented)
+  if (!HTML_BLOCK_START_PATTERN.test(content)) {
+    return content;
+  }
+  // Remove 4+ spaces/tabs before HTML tags at line starts
+  return content.replace(HTML_LINE_INDENT_PATTERN, "$1");
+};
+
+export type DownloadControlConfig = boolean | { filename: string };
+
+export type CopyControlConfig =
+  | boolean
+  | {
+      onCopy?: () => void;
+      onError?: (error: Error) => void;
+    };
+
+export type ControlsConfig =
+  | boolean
+  | {
+      table?:
+        | boolean
+        | {
+            copy?: boolean;
+            csvSeparator?: CSVSeparator;
+            download?: DownloadControlConfig;
+            fullscreen?: boolean;
+          };
+      code?:
+        | boolean
+        | {
+            copy?: CopyControlConfig;
+            download?: DownloadControlConfig;
+          };
+      mermaid?:
+        | boolean
+        | {
+            download?: DownloadControlConfig;
+            copy?: CopyControlConfig;
+            fullscreen?: boolean;
+            panZoom?: boolean;
+          };
+      image?: boolean | { download?: boolean };
+    };
+
+export interface LinkSafetyModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  url: string;
+}
+
+export interface LinkSafetyConfig {
+  enabled: boolean;
+  onLinkCheck?: (url: string) => Promise<boolean> | boolean;
+  renderModal?: (props: LinkSafetyModalProps) => React.ReactNode;
+}
+
+export interface MermaidErrorComponentProps {
+  chart: string;
+  error: string;
+  retry: () => void;
+}
+
+export interface MermaidOptions {
+  config?: MermaidConfig;
+  errorComponent?: React.ComponentType<MermaidErrorComponentProps>;
+}
+
+export type AllowedTags = Record<string, string[]>;
+export type PortalTarget = HTMLElement | null | (() => HTMLElement | null);
+
+export type StreamdownProps = Options & {
+  mode?: "static" | "streaming";
+  /**
+   * Text direction. `"ltr"` / `"rtl"` force a single direction.
+   * `"auto"` detects direction per block: in streaming mode via parsed
+   * markdown blocks, in static mode via a rehype pass on each semantic
+   * block (headings, paragraphs, list items, table cells, etc.).
+   * Detection uses a content-majority strong-character count with
+   * first-strong as the tie-breaker; fenced/inline code is excluded from
+   * the evidence and code blocks are always rendered LTR.
+   */
+  dir?: "auto" | "ltr" | "rtl";
+  BlockComponent?: React.ComponentType<BlockProps>;
+  parseMarkdownIntoBlocksFn?: (markdown: string) => string[];
+  parseIncompleteMarkdown?: boolean;
+  /** Normalize HTML block indentation to prevent 4+ spaces being treated as code blocks. @default false */
+  normalizeHtmlIndentation?: boolean;
+  className?: string;
+  shikiTheme?: [ThemeInput, ThemeInput];
+  mermaid?: MermaidOptions;
+  /**
+   * Max height for fenced code blocks. Numbers are treated as px.
+   * Set to `0` or `Infinity` to disable. @default 400
+   */
+  codeBlockMaxHeight?: number | string;
+  controls?: ControlsConfig;
+  isAnimating?: boolean;
+  /**
+   * Max height for tables. Numbers are treated as px.
+   * Set to `0` or `Infinity` to disable. @default 300
+   */
+  tableMaxHeight?: number | string;
+  animated?: boolean | AnimateOptions;
+  caret?: keyof typeof carets;
+  plugins?: PluginConfig;
+  remend?: RemendOptions;
+  linkSafety?: LinkSafetyConfig;
+  /**
+   * DOM node for Streamdown overlays, or a function returning one.
+   * Defaults to `document.body`.
+   */
+  portal?: PortalTarget;
+  /** Custom tags to allow through sanitization with their permitted attributes */
+  allowedTags?: AllowedTags;
+  /**
+   * Fallback component for HTML tags or `allowedTags` entries that have no
+   * matching key in the `components` map. Built-in and explicit `components`
+   * entries always win — this does not replace the default Tailwind renderers.
+   *
+   * When set, it applies to:
+   * - Custom tags declared via `allowedTags` that have no matching key in
+   *   `components`.
+   * - Standard HTML tags absent from both the built-in map and `components`
+   *   (e.g. `<span>`, `<em>`, `<div>`, `<br>`).
+   *
+   * @example
+   * ```tsx
+   * // Render missing map entries / allowedTags via a pass-through
+   * <Streamdown
+   *   allowedTags={{ mention: ["user_id"] }}
+   *   fallbackComponent={({ node, children, ...props }) =>
+   *     createElement(node!.tagName, props, children)
+   *   }
+   * >
+   *   {markdown}
+   * </Streamdown>
+   * ```
+   */
+  fallbackComponent?: React.ComponentType<Record<string, unknown> & ExtraProps>;
+  /**
+   * Tags whose children should be treated as plain text (no markdown parsing).
+   * Useful for mention/entity tags in AI UIs where child content is a data
+   * label rather than prose. Requires the tag to also be listed in `allowedTags`.
+   *
+   * @example
+   * ```tsx
+   * <Streamdown
+   *   allowedTags={{ mention: ['user_id'] }}
+   *   literalTagContent={['mention']}
+   * >
+   *   {`<mention user_id="123">@_some_username_</mention>`}
+   * </Streamdown>
+   * ```
+   */
+  literalTagContent?: string[];
+  /**
+   * Disable GFM / CommonMark autolinking for specific URL protocols (e.g. bare
+   * email addresses become `mailto:` autolinks). Accepts protocol names with
+   * or without a trailing colon, case-insensitive (`"mailto"` and `"mailto:"`
+   * are equivalent). Only affects autolinks (bare URLs/emails and `<...>`
+   * forms) — explicit markdown links (`[text](url)`), including cases where
+   * the label reconstructs the URL, are left as links.
+   *
+   * @example
+   * ```tsx
+   * <Streamdown disableAutolinkProtocols={["mailto"]}>
+   *   {"Contact us at hello@example.com"}
+   * </Streamdown>
+   * ```
+   */
+  disableAutolinkProtocols?: string[];
+  /** Override UI strings for i18n / custom labels */
+  translations?: Partial<StreamdownTranslations>;
+  /** Custom icons to override the default icons used in controls */
+  icons?: Partial<IconMap>;
+  /** Tailwind CSS prefix to prepend to all utility classes (e.g. `"tw"` produces `tw:flex` instead of `flex`). Enables Tailwind v4's `prefix()` support. Note: user-supplied `className` values are also prefixed. */
+  prefix?: string;
+  /** Show line numbers in code blocks. @default true */
+  lineNumbers?: boolean;
+  /**
+   * Code fence languages rendered verbatim as plain monospace text, without
+   * syntax highlighting, line numbers or controls. Useful for ASCII / Unicode
+   * box-drawing diagrams where column alignment matters.
+   * Custom renderers and the Mermaid plugin take precedence for matching languages.
+   * @default []
+   */
+  codeBlockRawLanguages?: string[];
+  /** Called when isAnimating transitions from false to true. Suppressed in mode="static". */
+  onAnimationStart?: () => void;
+  /** Called when isAnimating transitions from true to false. Suppressed in mode="static". */
+  onAnimationEnd?: () => void;
+  /** `data-*` attributes, like `aria-*` attributes, are set on the root element. */
+  [dataAttribute: `data-${string}`]:
+    | string
+    | number
+    | bigint
+    | boolean
+    | null
+    | undefined;
+} & AriaAttributes;
+
+const defaultSanitizeSchema = {
+  ...defaultSchema,
+  // remark-rehype already prefixes footnote ids and backref hrefs with
+  // `user-content-` (its default `clobberPrefix`). hast-util-sanitize's default
+  // `clobberPrefix` is also `user-content-`, which would double-prefix ids like
+  // `user-content-user-content-fn-1` while leaving the (already-prefixed) href
+  // pointing at the un-doubled anchor. Disable it here to avoid the mismatch.
+  clobberPrefix: "",
+  protocols: {
+    ...defaultSchema.protocols,
+    // `streamdown:` is the remend sentinel scheme for incomplete links/images
+    // during streaming (streamdown:incomplete-link / incomplete-image).
+    href: [...(defaultSchema.protocols?.href ?? []), "tel", "streamdown"],
+    src: [...(defaultSchema.protocols?.src ?? []), "streamdown"],
+  },
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [...(defaultSchema.attributes?.code ?? []), "metastring"],
+  },
+};
+
+export const defaultRehypePlugins: Record<string, Pluggable> = {
+  raw: rehypeRaw,
+  sanitize: [rehypeSanitize, defaultSanitizeSchema],
+  harden: [
+    harden,
+    {
+      allowedImagePrefixes: ["*"],
+      allowedLinkPrefixes: ["*"],
+      allowedProtocols: ["*"],
+      defaultOrigin: undefined,
+      allowDataImages: true,
+    },
+  ],
+} as const;
+
+export const defaultRemarkPlugins: Record<string, Pluggable> = {
+  gfm: [remarkGfm, {}],
+  codeMeta: remarkCodeMeta,
+} as const;
+
+// Stable plugin arrays for cache efficiency - created once at module level
+const defaultRehypePluginsArray = Object.values(defaultRehypePlugins);
+const defaultRemarkPluginsArray = Object.values(defaultRemarkPlugins);
+
+const carets = {
+  block: " ▋",
+  circle: " ●",
+};
+
+// Combined context for better performance - reduces React tree depth from 5 nested providers to 1
+export interface StreamdownContextType {
+  /** Max height for fenced code blocks. @default 400 */
+  codeBlockMaxHeight: number | string;
+  /** Code fence languages rendered verbatim without highlighting. */
+  codeBlockRawLanguages?: string[];
+  controls: ControlsConfig;
+  isAnimating: boolean;
+  /** Show line numbers in code blocks. @default true */
+  lineNumbers: boolean;
+  linkSafety?: LinkSafetyConfig;
+  mermaid?: MermaidOptions;
+  mode: "static" | "streaming";
+  portal?: PortalTarget;
+  shikiTheme: [ThemeInput, ThemeInput];
+  /** Max height for tables. @default 300 */
+  tableMaxHeight: number | string;
+}
+
+const serializeLanguages = (languages?: string[]): string =>
+  languages?.length ? JSON.stringify(languages) : "";
+
+const parseLanguages = (key: string): string[] | undefined =>
+  key ? JSON.parse(key) : undefined;
+
+const defaultShikiTheme: [ThemeInput, ThemeInput] = [
+  "github-light",
+  "github-dark",
+];
+
+const defaultLinkSafetyConfig: LinkSafetyConfig = {
+  enabled: true,
+};
+
+const defaultStreamdownContext: StreamdownContextType = {
+  codeBlockMaxHeight: 400,
+  shikiTheme: defaultShikiTheme,
+  controls: true,
+  isAnimating: false,
+  lineNumbers: true,
+  mode: "streaming",
+  mermaid: undefined,
+  linkSafety: defaultLinkSafetyConfig,
+  portal: undefined,
+  tableMaxHeight: 300,
+};
+
+export const StreamdownContext = createContext<StreamdownContextType>(
+  defaultStreamdownContext
+);
+
+export type BlockProps = Options & {
+  content: string;
+  shouldParseIncompleteMarkdown: boolean;
+  shouldNormalizeHtmlIndentation: boolean;
+  index: number;
+  /** Whether this block is incomplete (still being streamed) */
+  isIncomplete: boolean;
+  /** Resolved text direction for this block */
+  dir?: "ltr" | "rtl";
+  /** Animate plugin instance for tracking previous content length */
+  animatePlugin?: AnimatePlugin | null;
+};
+
+export const Block = memo(
+  // Destructure internal props to prevent them from leaking to the DOM
+  ({
+    content,
+    shouldParseIncompleteMarkdown: _,
+    shouldNormalizeHtmlIndentation,
+    index: __,
+    isIncomplete,
+    dir,
+    animatePlugin: animatePluginProp,
+    ...props
+  }: BlockProps) => {
+    // After rehype paints, commit the new char count so the *next* render
+    // treats already-visible text as settled. Commit lives outside the render
+    // body so StrictMode double-invoke cannot wipe and re-seed prevContentLength
+    // (#570 secondary). The plugin seeds prevContentLength from its own
+    // committedCharCount at the start of every rehype run.
+    //
+    // Span teardown on settle (#570 primary) is handled by stamping
+    // data-sd-animated on ancestors in the plugin and comparing that prop in
+    // sameClassAndNode — no Markdown remount key needed.
+    useLayoutEffect(() => {
+      animatePluginProp?.commit();
+    });
+
+    // Note: remend is already applied to the entire markdown before parsing into blocks
+    // in the Streamdown component, so we don't need to apply it again here
+    const normalizedContent =
+      typeof content === "string" && shouldNormalizeHtmlIndentation
+        ? normalizeHtmlIndentation(content)
+        : content;
+
+    const inner = <Markdown {...props}>{normalizedContent}</Markdown>;
+
+    return (
+      <BlockIncompleteContext.Provider value={isIncomplete}>
+        {dir ? (
+          <div dir={dir} style={{ display: "contents" }}>
+            {inner}
+          </div>
+        ) : (
+          inner
+        )}
+      </BlockIncompleteContext.Provider>
+    );
+  },
+  (prevProps, nextProps) => {
+    // Deep comparison for better memoization
+    if (prevProps.content !== nextProps.content) {
+      return false;
+    }
+    if (
+      prevProps.shouldNormalizeHtmlIndentation !==
+      nextProps.shouldNormalizeHtmlIndentation
+    ) {
+      return false;
+    }
+    if (prevProps.index !== nextProps.index) {
+      return false;
+    }
+
+    if (prevProps.isIncomplete !== nextProps.isIncomplete) {
+      return false;
+    }
+
+    if (prevProps.dir !== nextProps.dir) {
+      return false;
+    }
+
+    // Check if components object changed (shallow comparison)
+    if (prevProps.components !== nextProps.components) {
+      // If references differ, check if keys are the same
+      const prevKeys = Object.keys(prevProps.components || {});
+      const nextKeys = Object.keys(nextProps.components || {});
+
+      if (prevKeys.length !== nextKeys.length) {
+        return false;
+      }
+      if (
+        prevKeys.some(
+          (key) => prevProps.components?.[key] !== nextProps.components?.[key]
+        )
+      ) {
+        return false;
+      }
+    }
+
+    // Check if rehypePlugins changed (reference comparison)
+    if (prevProps.rehypePlugins !== nextProps.rehypePlugins) {
+      return false;
+    }
+
+    // Check if remarkPlugins changed (reference comparison)
+    if (prevProps.remarkPlugins !== nextProps.remarkPlugins) {
+      return false;
+    }
+
+    // Animate plugin presence toggles with isAnimating — must re-render so
+    // settled blocks drop their data-sd-animate spans (#570).
+    if (!!prevProps.animatePlugin !== !!nextProps.animatePlugin) {
+      return false;
+    }
+
+    return true;
+  }
+);
+
+Block.displayName = "Block";
+
+// TypeScript accepts any `data-*` or `aria-*` prop on a component, so these
+// have to be picked out of the rest props to reach the DOM.
+const getRootAttributes = (props: object): Record<string, unknown> => {
+  const attributes: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(props)) {
+    if (name.startsWith("data-") || name.startsWith("aria-")) {
+      attributes[name] = value;
+    }
+  }
+  return attributes;
+};
+
+const sameRootAttributes = (
+  prevProps: StreamdownProps,
+  nextProps: StreamdownProps
+): boolean => {
+  const prevAttributes = getRootAttributes(prevProps);
+  const nextAttributes = getRootAttributes(nextProps);
+  const names = Object.keys(prevAttributes);
+  return (
+    names.length === Object.keys(nextAttributes).length &&
+    names.every(
+      (name) =>
+        Object.hasOwn(nextAttributes, name) &&
+        prevAttributes[name] === nextAttributes[name]
+    )
+  );
+};
+
+export const Streamdown = memo(
+  ({
+    children,
+    mode = "streaming",
+    dir,
+    parseIncompleteMarkdown: shouldParseIncompleteMarkdown = true,
+    normalizeHtmlIndentation: shouldNormalizeHtmlIndentation = false,
+    components,
+    rehypePlugins = defaultRehypePluginsArray,
+    remarkPlugins = defaultRemarkPluginsArray,
+    className,
+    shikiTheme,
+    mermaid,
+    codeBlockMaxHeight = 400,
+    controls = true,
+    isAnimating = false,
+    tableMaxHeight = 300,
+    animated,
+    BlockComponent = Block,
+    parseMarkdownIntoBlocksFn = parseMarkdownIntoBlocks,
+    caret,
+    plugins,
+    remend: remendOptions,
+    linkSafety = defaultLinkSafetyConfig,
+    portal,
+    lineNumbers = true,
+    codeBlockRawLanguages,
+    allowedTags,
+    fallbackComponent,
+    literalTagContent,
+    disableAutolinkProtocols,
+    translations,
+    icons: iconOverrides,
+    prefix,
+    onAnimationStart,
+    onAnimationEnd,
+    ...props
+  }: StreamdownProps) => {
+    // All hooks must be called before any conditional returns
+    const generatedId = useId();
+    const rootAttributes = getRootAttributes(props);
+
+    const prefixedCn = useMemo(() => createCn(prefix), [prefix]);
+
+    // null means "first render" — distinguishes from false so we can fire
+    // onAnimationStart on mount when isAnimating={true} without firing
+    // onAnimationEnd on mount when isAnimating={false}.
+    const prevIsAnimatingRef = useRef<boolean | null>(null);
+
+    // Store callbacks in refs so the effect doesn't re-run when they change
+    const onAnimationStartRef = useRef(onAnimationStart);
+    const onAnimationEndRef = useRef(onAnimationEnd);
+    onAnimationStartRef.current = onAnimationStart;
+    onAnimationEndRef.current = onAnimationEnd;
+
+    useEffect(() => {
+      if (mode === "static") {
+        return;
+      }
+
+      const prev = prevIsAnimatingRef.current;
+      prevIsAnimatingRef.current = isAnimating;
+
+      // First render: only fire start (never end, since there's no prior state to end)
+      if (prev === null) {
+        if (isAnimating) {
+          onAnimationStartRef.current?.();
+        }
+        return;
+      }
+
+      if (isAnimating && !prev) {
+        onAnimationStartRef.current?.();
+      } else if (!isAnimating && prev) {
+        onAnimationEndRef.current?.();
+      }
+    }, [isAnimating, mode]);
+
+    const allowedTagNames = useMemo(
+      () => (allowedTags ? Object.keys(allowedTags) : []),
+      [allowedTags]
+    );
+
+    // Apply remend to fix incomplete markdown BEFORE parsing into blocks
+    // This prevents partial list items from being interpreted as setext headings
+    const processedChildren = useMemo(() => {
+      if (typeof children !== "string") {
+        return "";
+      }
+      let result =
+        mode === "streaming" && shouldParseIncompleteMarkdown
+          ? remend(children, remendOptions)
+          : children;
+
+      // Escape markdown metacharacters inside literal-tag-content tags so that
+      // children are rendered as plain text rather than parsed as markdown.
+      // This must run BEFORE preprocessCustomTags so that the HTML comments
+      // (<!---->) inserted to preserve blank lines are not themselves escaped.
+      if (literalTagContent && literalTagContent.length > 0) {
+        result = preprocessLiteralTagContent(result, literalTagContent);
+      }
+
+      // Normalize multi-line custom tags: blank-line sandwich so nested markdown
+      // parses, plus <!----> placeholders for internal blank lines. Runs after
+      // literal escaping so those markers are not corrupted.
+      if (allowedTagNames.length > 0) {
+        result = preprocessCustomTags(result, allowedTagNames);
+      }
+
+      return result;
+    }, [
+      children,
+      mode,
+      shouldParseIncompleteMarkdown,
+      remendOptions,
+      allowedTagNames,
+      literalTagContent,
+    ]);
+
+    const blocks = useMemo(
+      () => parseMarkdownIntoBlocksFn(processedChildren),
+      [processedChildren, parseMarkdownIntoBlocksFn]
+    );
+
+    // Render blocks directly. The previous displayBlocks + useTransition path
+    // could be starved by sibling urgent updates when animated was off (#550),
+    // freezing markdown at the first parse. Eager updates are correct here.
+    const blocksToRender = blocks;
+
+    // Pre-compute per-block text directions when dir="auto" so detection
+    // runs once per block change rather than on every render pass.
+    const blockDirections = useMemo(
+      () =>
+        dir === "auto" ? blocksToRender.map(detectTextDirection) : undefined,
+      [blocksToRender, dir]
+    );
+
+    // Generate stable keys based on index only
+    // Don't use content hash - that causes unmount/remount when content changes
+    // React will handle content updates via props changes and memo comparison
+    // biome-ignore lint/correctness/useExhaustiveDependencies: "we're using the blocksToRender length"
+    const blockKeys = useMemo(
+      () => blocksToRender.map((_block, idx) => `${generatedId}-${idx}`),
+      [blocksToRender.length, generatedId]
+    );
+
+    // Stable key derived from animated option values. This prevents the
+    // plugin from being recreated when the user passes an inline object
+    // literal (e.g. animated={{ animation: 'fadeIn' }}) whose reference
+    // changes on every parent render.
+    const animatedKey = useMemo(() => {
+      if (animated === true) {
+        return "true";
+      }
+      if (animated) {
+        return JSON.stringify(animated);
+      }
+      return "";
+    }, [animated]);
+
+    // Shared wall-clock timeline: serializes stagger delays across sibling
+    // blocks AND across streaming ticks (memoized earlier blocks don't
+    // re-render, so a pure render-order counter would miss them). Fixes #482.
+    const animateTimelineRef = useRef<AnimateTimeline | null>(null);
+    // One AnimatePlugin per block so each tracks its own prevContentLength.
+    const blockAnimatePluginsRef = useRef<AnimatePlugin[]>([]);
+    // Per-block rehype plugin arrays (base + that block's animate plugin).
+    // Stable references keep Block's memo from thrashing.
+    const blockRehypePluginsRef = useRef<Pluggable[][]>([]);
+    const prevMergedRehypePluginsRef = useRef<Pluggable[] | null>(null);
+    const prevAnimatedKeyRef = useRef<string>("");
+
+    if (animatedKey) {
+      if (prevAnimatedKeyRef.current !== animatedKey) {
+        prevAnimatedKeyRef.current = animatedKey;
+        const backlog =
+          animatedKey !== "true"
+            ? (animated as AnimateOptions).maxBacklogMs
+            : undefined;
+        animateTimelineRef.current = createAnimateTimeline({
+          maxBacklogMs: backlog,
+        });
+        blockAnimatePluginsRef.current = [];
+        blockRehypePluginsRef.current = [];
+      } else if (!animateTimelineRef.current) {
+        animateTimelineRef.current = createAnimateTimeline();
+      }
+      // Reset the per-pass cursor from the last *committed* horizon so a
+      // StrictMode double-render recomputes the same delays instead of
+      // stacking (#482 + StrictMode).
+      if (isAnimating && animateTimelineRef.current) {
+        animateTimelineRef.current.beginPass(animateTimelineRef.current.now());
+      }
+    } else {
+      animateTimelineRef.current = null;
+      blockAnimatePluginsRef.current = [];
+      blockRehypePluginsRef.current = [];
+      prevAnimatedKeyRef.current = "";
+    }
+
+    // Commit the in-flight pass horizon after paint. Discarded concurrent
+    // renders that called beginPass never reach this effect, so they can't
+    // poison nextStartAt.
+    useLayoutEffect(() => {
+      if (isAnimating) {
+        animateTimelineRef.current?.commitPass();
+      }
+    });
+
+    // Stable key so inline arrays don't defeat memoization.
+    const rawLanguagesKey = serializeLanguages(codeBlockRawLanguages);
+
+    // Combined context value - single object reduces React tree overhead
+    const contextValue = useMemo<StreamdownContextType>(
+      () => ({
+        codeBlockMaxHeight,
+        codeBlockRawLanguages: parseLanguages(rawLanguagesKey),
+        shikiTheme:
+          shikiTheme ?? plugins?.code?.getThemes() ?? defaultShikiTheme,
+        controls,
+        isAnimating,
+        lineNumbers,
+        mode,
+        mermaid,
+        linkSafety,
+        portal,
+        tableMaxHeight,
+      }),
+      [
+        codeBlockMaxHeight,
+        rawLanguagesKey,
+        shikiTheme,
+        controls,
+        isAnimating,
+        lineNumbers,
+        mode,
+        mermaid,
+        linkSafety,
+        portal,
+        plugins?.code,
+        tableMaxHeight,
+      ]
+    );
+
+    // Stable key derived from translations values so inline objects don't
+    // defeat memoization (same pattern used for `animated` above).
+    const translationsKey = useMemo(
+      () => (translations ? JSON.stringify(translations) : ""),
+      [translations]
+    );
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by translationsKey for value equality
+    const translationsValue = useMemo(
+      () => ({ ...defaultTranslations, ...translations }),
+      [translationsKey]
+    );
+
+    // Memoize merged components to avoid recreating on every render
+    const mergedComponents = useMemo(() => {
+      const { inlineCode, ...userComponents } = components ?? {};
+
+      const merged: Record<string, unknown> = {
+        ...builtinComponents,
+        ...userComponents,
+      };
+
+      if (inlineCode) {
+        const BlockCode = merged.code as
+          | ComponentType<ComponentProps<"code"> & ExtraProps>
+          | undefined;
+        merged.code = (props: ComponentProps<"code"> & ExtraProps) => {
+          const isInline = !("data-block" in props);
+          if (isInline) {
+            return createElement(inlineCode, props);
+          }
+          return BlockCode ? createElement(BlockCode, props) : null;
+        };
+      }
+
+      if (fallbackComponent) {
+        // Eagerly register fallbackComponent for allowedTags entries that have
+        // no explicit component in the user-supplied `components` map.
+        if (allowedTags) {
+          for (const tag of Object.keys(allowedTags)) {
+            if (!Object.hasOwn(merged, tag)) {
+              merged[tag] = fallbackComponent;
+            }
+          }
+        }
+
+        // Wrap in a Proxy so any other tag not explicitly covered (e.g. HTML
+        // tags absent from defaultComponents like <span>, <em>, <div>)
+        // also uses fallbackComponent instead of rendering as a bare intrinsic
+        // element. hast-util-to-jsx-runtime resolves components via
+        // hasOwnProperty (own.call), so we intercept getOwnPropertyDescriptor
+        // as well as get to satisfy both the presence check and the lookup.
+        const fallbackDesc: PropertyDescriptor = {
+          configurable: true,
+          enumerable: false,
+          value: fallbackComponent,
+          writable: false,
+        };
+        return new Proxy(merged as Components, {
+          getOwnPropertyDescriptor(target, prop) {
+            const ownProp = Object.getOwnPropertyDescriptor(target, prop);
+            if (ownProp) {
+              return ownProp;
+            }
+            // Intercept lowercase HTML / custom tag names only.
+            if (typeof prop === "string" && LOWERCASE_TAG_PATTERN.test(prop)) {
+              return fallbackDesc;
+            }
+            return undefined;
+          },
+          get(target, prop, receiver) {
+            if (
+              typeof prop === "string" &&
+              LOWERCASE_TAG_PATTERN.test(prop) &&
+              !Object.hasOwn(target, prop)
+            ) {
+              return fallbackComponent;
+            }
+            return Reflect.get(target, prop, receiver);
+          },
+        });
+      }
+
+      return merged as Components;
+    }, [components, fallbackComponent, allowedTags]);
+
+    // Merge plugin remark plugins (math, cjk)
+    // Order: CJK before -> default (remarkGfm) -> CJK after -> math
+    const mergedRemarkPlugins = useMemo(() => {
+      let result: Pluggable[] = [];
+      // CJK plugins that must run BEFORE remarkGfm (e.g., remark-cjk-friendly)
+      if (plugins?.cjk) {
+        result = [...result, ...plugins.cjk.remarkPluginsBefore];
+      }
+      // Default plugins (includes remarkGfm)
+      result = [...result, ...remarkPlugins];
+      // Optionally strip GFM autolink-literal links for disabled protocols
+      // (e.g. mailto). Runs right after remarkGfm since it inspects the
+      // link nodes remarkGfm's autolink-literal extension creates. Skipped
+      // entirely when unset so default behavior/pipeline is unchanged.
+      if (disableAutolinkProtocols && disableAutolinkProtocols.length > 0) {
+        result = [
+          ...result,
+          [remarkDisableAutolinkProtocols, disableAutolinkProtocols],
+        ];
+      }
+      // CJK plugins that must run AFTER remarkGfm (e.g., autolink boundary)
+      if (plugins?.cjk) {
+        result = [...result, ...plugins.cjk.remarkPluginsAfter];
+      }
+      // Math plugins
+      if (plugins?.math) {
+        result = [...result, plugins.math.remarkPlugin];
+      }
+      return result;
+    }, [remarkPlugins, plugins?.math, plugins?.cjk, disableAutolinkProtocols]);
+
+    const mergedRehypePlugins = useMemo(() => {
+      let result = rehypePlugins;
+
+      // extend sanitization schema with allowedTags. only works with default plugins. if user provides a custom sanitize plugin, they can pass in the custom allowed tags via the plugins object.
+      if (
+        allowedTags &&
+        Object.keys(allowedTags).length > 0 &&
+        rehypePlugins === defaultRehypePluginsArray
+      ) {
+        const extendedSchema = {
+          ...defaultSanitizeSchema,
+          tagNames: [
+            ...(defaultSanitizeSchema.tagNames ?? []),
+            ...Object.keys(allowedTags),
+          ],
+          attributes: {
+            ...defaultSanitizeSchema.attributes,
+            ...allowedTags,
+          },
+        };
+
+        result = [
+          defaultRehypePlugins.raw,
+          [rehypeSanitize, extendedSchema],
+          defaultRehypePlugins.harden,
+        ];
+      }
+
+      if (literalTagContent && literalTagContent.length > 0) {
+        result = [...result, [rehypeLiteralTagContent, literalTagContent]];
+      }
+
+      if (plugins?.math) {
+        result = [...result, plugins.math.rehypePlugin];
+      }
+
+      // Animate plugins are attached per-block in getBlockPlugins() so each
+      // block owns its prevContentLength while sharing one timeline.
+
+      if (dir === "auto" && mode === "static") {
+        result = [...result, rehypeBlockDirection];
+      }
+
+      return result;
+    }, [
+      rehypePlugins,
+      plugins?.math,
+      allowedTags,
+      literalTagContent,
+      dir,
+      mode,
+    ]);
+
+    const style = useMemo(
+      () =>
+        caret && isAnimating
+          ? ({
+              "--streamdown-caret": `"${carets[caret]}"`,
+            } as CSSProperties)
+          : undefined,
+      [caret, isAnimating]
+    );
+
+    const shouldHideCaret = useMemo(() => {
+      if (!isAnimating || blocksToRender.length === 0) {
+        return false;
+      }
+      const lastBlock = blocksToRender.at(-1) as string;
+      return hasIncompleteCodeFence(lastBlock) || hasTable(lastBlock);
+    }, [isAnimating, blocksToRender]);
+
+    const { containerRef, showCaret } = useCaretHost(shouldHideCaret);
+
+    const getBlockPlugins = (
+      index: number
+    ): {
+      blockAnimatePlugin: AnimatePlugin | null;
+      blockRehypePlugins: Pluggable[];
+    } => {
+      let blockAnimatePlugin: AnimatePlugin | null = null;
+      if (animateTimelineRef.current && isAnimating) {
+        if (!blockAnimatePluginsRef.current[index]) {
+          // maxBacklogMs is consumed by the timeline factory, not the plugin.
+          const rawOpts =
+            animatedKey && animatedKey !== "true"
+              ? (animated as AnimateOptions)
+              : ({} as AnimateOptions);
+          const { maxBacklogMs: _, ...pluginOpts } = rawOpts;
+          blockAnimatePluginsRef.current[index] = createRenderAnimatePlugin({
+            ...pluginOpts,
+            timeline: animateTimelineRef.current,
+          });
+        }
+        blockAnimatePlugin = blockAnimatePluginsRef.current[index];
+      }
+
+      if (prevMergedRehypePluginsRef.current !== mergedRehypePlugins) {
+        blockRehypePluginsRef.current = [];
+        prevMergedRehypePluginsRef.current = mergedRehypePlugins;
+      }
+
+      if (blockAnimatePlugin && !blockRehypePluginsRef.current[index]) {
+        blockRehypePluginsRef.current[index] = [
+          ...mergedRehypePlugins,
+          blockAnimatePlugin.rehypePlugin,
+        ];
+      }
+
+      const blockRehypePlugins =
+        blockAnimatePlugin && blockRehypePluginsRef.current[index]
+          ? blockRehypePluginsRef.current[index]
+          : mergedRehypePlugins;
+
+      return { blockAnimatePlugin, blockRehypePlugins };
+    };
+
+    // Static mode: simple rendering without streaming features
+    if (mode === "static") {
+      return (
+        <TranslationsContext.Provider value={translationsValue}>
+          <PluginContext.Provider value={plugins ?? null}>
+            <StreamdownContext.Provider value={contextValue}>
+              <IconProvider icons={iconOverrides}>
+                <PrefixContext.Provider value={prefixedCn}>
+                  <div
+                    {...rootAttributes}
+                    className={prefixedCn(
+                      // Use [&>*] arbitrary variant syntax for Tailwind v3 + v4 compat (v3 lacks the *: variant)
+                      "space-y-4 whitespace-normal [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                      className
+                    )}
+                    dir={dir === "auto" ? undefined : dir}
+                  >
+                    <Markdown
+                      components={mergedComponents}
+                      rehypePlugins={mergedRehypePlugins}
+                      remarkPlugins={mergedRemarkPlugins}
+                      {...props}
+                    >
+                      {processedChildren}
+                    </Markdown>
+                  </div>
+                </PrefixContext.Provider>
+              </IconProvider>
+            </StreamdownContext.Provider>
+          </PluginContext.Provider>
+        </TranslationsContext.Provider>
+      );
+    }
+
+    // Streaming mode: parse into blocks with memoization and incomplete markdown handling
+    return (
+      <TranslationsContext.Provider value={translationsValue}>
+        <PluginContext.Provider value={plugins ?? null}>
+          <StreamdownContext.Provider value={contextValue}>
+            <IconProvider icons={iconOverrides}>
+              <PrefixContext.Provider value={prefixedCn}>
+                <div
+                  {...rootAttributes}
+                  className={prefixedCn(
+                    // Use [&>*] arbitrary variant syntax for Tailwind v3 + v4 compat (v3 lacks the *: variant)
+                    "space-y-4 whitespace-normal [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                    caret && showCaret
+                      ? "[&>*:last-child:not([data-sd-caret-hidden])]:after:inline [&>*:last-child:not([data-sd-caret-hidden])]:after:align-baseline [&>*:last-child:not([data-sd-caret-hidden])]:after:content-[var(--streamdown-caret)]"
+                      : null,
+                    className
+                  )}
+                  ref={containerRef}
+                  style={style}
+                >
+                  {blocksToRender.length === 0 && caret && isAnimating && (
+                    <span />
+                  )}
+                  {blocksToRender.map((block, index) => {
+                    const isLastBlock = index === blocksToRender.length - 1;
+                    const isIncomplete =
+                      isAnimating &&
+                      isLastBlock &&
+                      hasIncompleteCodeFence(block);
+                    const { blockAnimatePlugin, blockRehypePlugins } =
+                      getBlockPlugins(index);
+                    return (
+                      <BlockComponent
+                        animatePlugin={blockAnimatePlugin}
+                        components={mergedComponents}
+                        content={block}
+                        dir={
+                          blockDirections?.[index] ??
+                          (dir !== "auto" ? dir : undefined)
+                        }
+                        index={index}
+                        isIncomplete={isIncomplete}
+                        key={blockKeys[index]}
+                        rehypePlugins={blockRehypePlugins}
+                        remarkPlugins={mergedRemarkPlugins}
+                        shouldNormalizeHtmlIndentation={
+                          shouldNormalizeHtmlIndentation
+                        }
+                        shouldParseIncompleteMarkdown={
+                          shouldParseIncompleteMarkdown
+                        }
+                        {...props}
+                      />
+                    );
+                  })}
+                </div>
+              </PrefixContext.Provider>
+            </IconProvider>
+          </StreamdownContext.Provider>
+        </PluginContext.Provider>
+      </TranslationsContext.Provider>
+    );
+  },
+  (prevProps, nextProps) =>
+    prevProps.children === nextProps.children &&
+    prevProps.shikiTheme === nextProps.shikiTheme &&
+    prevProps.isAnimating === nextProps.isAnimating &&
+    prevProps.animated === nextProps.animated &&
+    prevProps.mode === nextProps.mode &&
+    prevProps.plugins === nextProps.plugins &&
+    prevProps.className === nextProps.className &&
+    prevProps.linkSafety === nextProps.linkSafety &&
+    prevProps.lineNumbers === nextProps.lineNumbers &&
+    JSON.stringify(prevProps.codeBlockRawLanguages) ===
+      JSON.stringify(nextProps.codeBlockRawLanguages) &&
+    prevProps.codeBlockMaxHeight === nextProps.codeBlockMaxHeight &&
+    prevProps.tableMaxHeight === nextProps.tableMaxHeight &&
+    prevProps.normalizeHtmlIndentation === nextProps.normalizeHtmlIndentation &&
+    prevProps.literalTagContent === nextProps.literalTagContent &&
+    prevProps.disableAutolinkProtocols === nextProps.disableAutolinkProtocols &&
+    JSON.stringify(prevProps.translations) ===
+      JSON.stringify(nextProps.translations) &&
+    prevProps.prefix === nextProps.prefix &&
+    prevProps.dir === nextProps.dir &&
+    prevProps.fallbackComponent === nextProps.fallbackComponent &&
+    sameRootAttributes(prevProps, nextProps)
+);
+Streamdown.displayName = "Streamdown";

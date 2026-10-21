@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@source "../../../index.ts";
+@source "../../../lib";
+@source "../../../vendor/upstream/packages/streamdown";
+@import "../../../styles.css";
+@import "katex/dist/katex.min.css";
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #202020;
+  --color-muted: #f0f1f3;
+  --color-muted-foreground: #686b73;
+  --color-border: #dddfe4;
+  --color-primary: #2857cf;
+  --color-primary-foreground: #ffffff;
+  --color-sidebar: #f7f8fa;
+}
+body {
+  font-family: system-ui, sans-serif;
+  color: var(--color-foreground);
+  margin: 24px;
+  font-size: 14px;
+}
+header {
+  margin-bottom: 24px;
+}
+header h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+header p {
+  color: #686b73;
+  margin-top: 8px;
+}
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+section > h2 {
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+section {
+  min-width: 0;
+}
