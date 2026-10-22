@@ -1,180 +1,243 @@
-# Streamdown Vue
+# FlowMD
 
-[![Validate](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml)
+Streaming Markdown for Vue 3.
 
-A native Vue 3 port of [Vercel Streamdown](https://github.com/vercel/streamdown), targeting **Streamdown 2.7.1** at the commit recorded in [upstream.json](./upstream.json).
+[![CI](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-Render incomplete Markdown as it streams, with the same repair, block parsing, AST pipeline, default components and interactive controls as the pinned reference. The production package does not depend on React. The vendored React implementation is used only for development and differential tests.
+FlowMD renders Markdown as it arrives, including unfinished emphasis, links, tables, and code fences. It provides native Vue components, configurable renderers, and optional plugins for syntax highlighting, math, diagrams, and CJK text.
 
-The pinned port has passed native and differential tests on Node 22 and 24, real-browser tests, and strict packed-consumer checks. See [docs/VALIDATION.md](./docs/VALIDATION.md) for evidence and framework boundaries.
+- **Streaming rendering** — repairs incomplete syntax for display and reuses unchanged blocks as content grows.
+- **Code and diagrams** — optional Shiki highlighting and Mermaid rendering, with copy, download, and fullscreen controls.
+- **Math and CJK** — optional KaTeX rendering and CJK-aware emphasis and strikethrough parsing.
+- **Customization** — Vue component overrides, custom fence renderers, remark/rehype plugins, translations, and icons.
+- **Layout and interaction** — RTL support, bounded code and table scrolling, and configurable overlay targets.
+- **Server rendering** — supports Vue SSR, with diagrams and browser interactions deferred to the client.
 
 ## Installation
 
-The package name is `@chenenci/streamdown-vue`. Until it is published, install a local tarball:
+FlowMD is currently available from source. The npm package has not been published yet.
+
+Requirements: Vue **3.5+**, an ESM-compatible application, and Node.js **22+** for development or server rendering. The default components use Tailwind CSS utilities; see [Styling](#styling) for setup.
+
+Build a package from the repository using the pnpm version specified in `package.json`:
 
 ```sh
+git clone https://github.com/uraraneko/streamdown-vue.git
+cd streamdown-vue
 pnpm install --frozen-lockfile
-pnpm build
 pnpm pack --pack-destination .cache
-# In your application:
-pnpm add /path/to/streamdown-vue/.cache/chenenci-streamdown-vue-0.1.0.tgz
 ```
 
-Vue 3.5 or later is required. Development and builds require Node.js 22 or later.
+The pack command builds the library automatically. In your application, install the generated archive:
 
-## Basic streaming
+```sh
+pnpm add /path/to/streamdown-vue/.cache/flowmd-0.1.0.tgz
+```
+
+## Quick start
 
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { Streamdown } from "@chenenci/streamdown-vue";
-import "@chenenci/streamdown-vue/styles.css";
+import { Streamdown } from "flowmd";
+import "flowmd/styles.css";
 
-const markdown = ref("");
+const markdown = ref("## Hello\n\nMarkdown rendered with **FlowMD**.");
 const isStreaming = ref(false);
+</script>
 
+<template>
+  <Streamdown :children="markdown" :is-animating="isStreaming" caret="block" />
+</template>
+```
+
+Pass the complete accumulated Markdown string on each update. When the stream ends, set `isAnimating` to `false` and keep `mode="streaming"`, the default mode.
+
+For an existing source of text chunks, append each chunk to the same value:
+
+```ts
 async function consume(chunks: AsyncIterable<string>) {
   markdown.value = "";
   isStreaming.value = true;
+
   try {
-    for await (const chunk of chunks) markdown.value += chunk;
+    for await (const chunk of chunks) {
+      markdown.value += chunk;
+    }
   } finally {
     isStreaming.value = false;
   }
 }
+```
+
+Syntax repair applies to the displayed content. Keep the original source in application state. For complete documents that do not need streaming repair, use `mode="static"`.
+
+Content can also be supplied through the default slot:
+
+```vue
+<Streamdown>{{ markdown }}</Streamdown>
+```
+
+## Styling
+
+The package stylesheet provides streaming animations and caret styles. The default components also require Tailwind utilities and semantic color tokens from your application.
+
+For Tailwind CSS v4, include the package's built output in source detection and map the tokens to your theme. Adjust the source path relative to your application stylesheet:
+
+```css
+@import "tailwindcss";
+@source "../node_modules/flowmd/dist";
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #202020;
+  --color-muted: #f0f1f3;
+  --color-muted-foreground: #686b73;
+  --color-border: #dddfe4;
+  --color-primary: #2857cf;
+  --color-primary-foreground: #ffffff;
+  --color-sidebar: #f7f8fa;
+}
+```
+
+The values above are a minimal light theme. Use your application's existing tokens when available. For Tailwind CSS v3, add `node_modules/flowmd/dist/**/*.js` to `content` and configure the same colors in your theme.
+
+Use `prefix="tw"` with Tailwind v4's `prefix(tw)` convention. Component overrides allow a different design system to provide its own markup and styling.
+
+## Plugins
+
+Plugins are available as separate entry points. Import and register the features your application needs:
+
+| Feature             | Entry point      | Additional dependency    |
+| ------------------- | ---------------- | ------------------------ |
+| Syntax highlighting | `flowmd/code`    | Shiki                    |
+| Math                | `flowmd/math`    | KaTeX and its stylesheet |
+| Diagrams            | `flowmd/mermaid` | Mermaid                  |
+| CJK text handling   | `flowmd/cjk`     | None                     |
+
+For all four plugins, install the supported peer versions:
+
+```sh
+pnpm add 'shiki@^4.4.3' 'katex@^0.16.27' 'mermaid@^11.16.1'
+```
+
+```vue
+<script setup lang="ts">
+import { Streamdown } from "flowmd";
+import { code } from "flowmd/code";
+import { math } from "flowmd/math";
+import { mermaid } from "flowmd/mermaid";
+import { cjk } from "flowmd/cjk";
+import "flowmd/styles.css";
+import "katex/dist/katex.min.css";
+
+defineProps<{ markdown: string; isStreaming?: boolean }>();
+
+const plugins = { code, math, mermaid, cjk };
 </script>
 
 <template>
   <Streamdown
     :children="markdown"
     :is-animating="isStreaming"
-    mode="streaming"
-    caret="block"
+    :plugins="plugins"
   />
 </template>
 ```
 
-Pass the **full accumulated source**, rather than only the newest chunk. Repair applies to a derived display string; retain the original source in your application. Keep `mode="streaming"` when the response finishes and set `isAnimating` to `false`. Use `mode="static"` for complete documents that do not need streaming repair.
+The math plugin recognizes `$$...$$` by default. Enable single-dollar inline math with `createMathPlugin({ singleDollarTextMath: true })` from `flowmd/math`. The code plugin supports light/dark theme pairs through `createCodePlugin({ themes: [lightTheme, darkTheme] })` from `flowmd/code`.
 
-A default slot is also supported: `<Streamdown>{{ markdown }}</Streamdown>`.
+## Configuration
 
-## Styling
+| Prop                 | Default            | Description                                                             |
+| -------------------- | ------------------ | ----------------------------------------------------------------------- |
+| `children`           | —                  | Complete accumulated Markdown string; a default slot is also supported. |
+| `mode`               | `"streaming"`      | Streaming repair or static document rendering.                          |
+| `isAnimating`        | `false`            | Indicates an active stream and controls the streaming UI.               |
+| `plugins`            | —                  | Optional code, math, Mermaid, CJK, and custom fence renderers.          |
+| `components`         | Built-in renderers | Vue component overrides for Markdown elements.                          |
+| `controls`           | `true`             | Enable or configure code, table, image, and diagram controls.           |
+| `codeBlockMaxHeight` | `400`              | Code block height limit, in pixels or a CSS length.                     |
+| `tableMaxHeight`     | `300`              | Table height limit, in pixels or a CSS length.                          |
+| `lineNumbers`        | `true`             | Show code line numbers.                                                 |
+| `dir`                | —                  | `"ltr"`, `"rtl"`, or per-block `"auto"` detection.                      |
 
-The built-in components use Tailwind utility classes and semantic color tokens. Importing `styles.css` supplies animation styles; your application must also generate the utility classes.
+See the [API reference](./docs/API.md) for all props, exports, and plugin options.
 
-With Tailwind CSS v4, add this to your application stylesheet (adjust the relative path to your stylesheet):
+### Controls
 
-```css
-@import "tailwindcss";
-@source '../node_modules/@chenenci/streamdown-vue/dist';
-@import "@chenenci/streamdown-vue/styles.css";
-
-@theme {
-  --color-background: #fff;
-  --color-foreground: #202020;
-  --color-muted: #f0f1f3;
-  --color-muted-foreground: #686b73;
-  --color-border: #dddfe4;
-  --color-primary: #2857cf;
-  --color-primary-foreground: #fff;
-  --color-sidebar: #f7f8fa;
-}
-```
-
-For Tailwind v3, include `node_modules/@chenenci/streamdown-vue/dist/**/*.js` in `content` and map the same semantic colors in your theme. `prefix="tw"` supports Tailwind v4's `prefix(tw)` convention. Override default components or styles for a different design system.
-
-## Plugins
-
-Plugin implementations are preserved from the pinned upstream and exposed as subpaths. Only import those you use:
+Use `:controls="false"` to hide all controls, or configure individual features:
 
 ```ts
-import { Streamdown } from "@chenenci/streamdown-vue";
-import { code } from "@chenenci/streamdown-vue/code";
-import { math } from "@chenenci/streamdown-vue/math";
-import { mermaid } from "@chenenci/streamdown-vue/mermaid";
-import { cjk } from "@chenenci/streamdown-vue/cjk";
-import "katex/dist/katex.min.css";
+import type { ControlsConfig } from "flowmd";
 
-const plugins = { code, math, mermaid, cjk };
-```
-
-```vue
-<Streamdown :children="markdown" :plugins="plugins" />
-```
-
-Install `shiki` for syntax highlighting and `mermaid` for diagrams. These are optional peer dependencies. KaTeX is also installed transitively by the math parser dependency; its CSS must be imported by applications that enable math. Neither diagrams nor highlighting is loaded by the core entry point.
-
-The default math plugin recognizes `$$...$$`. To also recognize `$...$`, use `createMathPlugin({ singleDollarTextMath: true })`. The code plugin supports dual themes and incremental tokenization. Compatible upstream plugin objects can also be supplied; renderer components must be Vue components.
-
-## Controls and custom rendering
-
-```ts
-const controls = {
-  code: {
-    copy: { onCopy: () => console.log("Copied") },
-    download: { filename: "snippet" },
-  },
-  table: {
-    copy: true,
-    download: { filename: "report" },
-    csvSeparator: ";",
-    fullscreen: true,
-  },
+const controls: ControlsConfig = {
+  code: { copy: true, download: { filename: "snippet" } },
+  table: { copy: true, download: true, fullscreen: true, csvSeparator: ";" },
   mermaid: { copy: true, download: true, fullscreen: true, panZoom: true },
   image: { download: true },
 };
 ```
 
-Set `controls={false}` in JSX, or `:controls="false"` in a template, to hide controls. Code/table height limits default to 400/300 pixels; use `0` or `Infinity` to remove the limit. Streaming containers follow the bottom until the user scrolls up.
+Pass the configuration with `<Streamdown :children="markdown" :controls="controls" />`. Set a height limit to `0` or `Infinity` to remove it. During streaming, bounded containers follow new content until the user scrolls up.
 
-Override Markdown tags with `components`. Custom components receive the HAST `node`, HTML properties, `className`, and content both through a `children` prop and a default slot:
+### Custom components
+
+Override individual elements while composing the default renderers:
 
 ```ts
 import { defineComponent, h } from "vue";
-import { defaultComponents } from "@chenenci/streamdown-vue";
+import { defaultComponents } from "flowmd";
 
 const Heading = defineComponent({
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () =>
-      h(defaultComponents.h2, { ...attrs, className: "text-blue-500" }, slots);
+      h(defaultComponents.h2, { ...attrs, className: "text-sky-600" }, slots);
   },
 });
+
 const components = { h2: Heading };
 ```
 
-Use `plugins.renderers` to render a fence language with a Vue component. It receives `code`, `language`, `isIncomplete` and `meta`. `components.inlineCode` overrides only inline code. `codeBlockRawLanguages` renders selected languages verbatim without highlighting or controls; custom renderers and Mermaid take precedence.
+Register the map with `<Streamdown :children="markdown" :components="components" />`. Custom components receive the HAST `node`, HTML properties, `className`, a `children` prop, and a default slot. Use `components.inlineCode` to override only inline code.
 
-`useIsCodeFenceIncomplete()` returns a readonly **computed ref** in this Vue package. Call it once in `setup()` and read `.value` in JavaScript (templates unwrap it automatically).
+For custom fenced languages, register `plugins.renderers`. A renderer receives `code`, `language`, `isIncomplete`, and `meta`. The `useIsCodeFenceIncomplete()` composable returns a readonly computed ref; call it in `setup()` and read `.value` in JavaScript.
 
-## Configuration and SSR
+### Configuration updates
 
-See [docs/API.md](./docs/API.md) for the public options and exports.
+Content and supported live options update existing blocks. Initializing options—including component maps, controls, icons, parser plugin arrays, and portal configuration—follow the pinned upstream's update behavior. To replace these independently of Markdown content, remount the component with a changed Vue `key`.
 
-The upstream update comparator is preserved: content and supported live inputs invalidate rendering, while options such as `portal`, `components`, `controls`, `icons`, parser plugin arrays and element filters should be treated as initializing configuration. To replace those independently of content, remount with a changed Vue `key`. Stable earlier blocks reuse their parsed render result.
+## HTML and server rendering
 
-The core supports Vue server rendering. Diagrams and browser interactions are deferred to the client. A `portal` can be an element or a function returning an element; it is resolved when an overlay opens, not while rendering on the server. Supply a target inside your modal or shadow root when needed.
+Raw HTML passes through parsing, sanitization, and hardening. Use `allowedTags`, `literalTagContent`, and element filters to customize the output. Supplying `remarkPlugins` or `rehypePlugins` replaces that default plugin list; include the exported defaults when retaining their behavior.
 
-Raw HTML follows the upstream `rehype-raw` → sanitization → hardening pipeline. `allowedTags`, `literalTagContent`, element filters and explicit remark/rehype plugins provide the same extension points. Supplying custom parser plugins replaces the corresponding default list, so include the defaults when you want to retain them. External links use the link confirmation UI by default.
+Vue SSR is supported. Diagrams and browser interactions run on the client. A `portal` can be a DOM element or a function returning one; the target is resolved when an overlay opens. External links show a confirmation dialog by default, configurable through `linkSafety`.
 
-## Development and verification
+## Documentation
+
+| Document                           | Contents                                                       |
+| ---------------------------------- | -------------------------------------------------------------- |
+| [API reference](./docs/API.md)     | Props, exports, plugins, and Vue interfaces.                   |
+| [Compatibility](./docs/PARITY.md)  | Upstream revision, behavioral scope, and framework boundaries. |
+| [Validation](./docs/VALIDATION.md) | Test coverage and package verification.                        |
+| [Contributing](./CONTRIBUTING.md)  | Local setup and contribution guidelines.                       |
+| [Releasing](./docs/RELEASING.md)   | CI operation and release procedure.                            |
+
+## Development
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm verify:upstream
-pnpm typecheck
-pnpm test:coverage
-pnpm build
-pnpm test:package
+pnpm check
 pnpm exec playwright install chromium
 pnpm test:browser
-pnpm format:check
 ```
 
-`pnpm preview:parity` opens a local fixture rendering the pinned React implementation and Vue port side by side. The browser suite also checks real plugin rendering, clipboard formats, downloaded bytes, overlays, scrolling and zoom controls.
+`pnpm check` runs formatting, source comparison, type checks, coverage, the build, and isolated package-consumer checks. `pnpm preview:parity` starts a local comparison fixture for the Vue renderer and its React reference.
 
-The source origin, framework boundaries, verification scope and remaining audit are recorded in [docs/PARITY.md](./docs/PARITY.md). See [CONTRIBUTING.md](./CONTRIBUTING.md) for changes and [docs/RELEASING.md](./docs/RELEASING.md) for release gates.
+## Acknowledgements and license
 
-## License
+FlowMD is a native Vue adaptation of [Vercel Streamdown](https://github.com/vercel/streamdown), based on Streamdown **2.7.1**, with earlier Vue adaptation work from [brucewar/streamdown-vue](https://github.com/brucewar/streamdown-vue). The package has no React runtime dependency.
 
-Apache-2.0. See [LICENSE](./LICENSE), [NOTICE](./NOTICE) and [upstream.json](./upstream.json) for attribution and pinned source provenance.
+Licensed under [Apache-2.0](./LICENSE). See [NOTICE](./NOTICE) for attribution and [upstream.json](./upstream.json) for the pinned source revisions.

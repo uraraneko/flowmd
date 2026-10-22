@@ -1,7 +1,7 @@
 {
-  "name": "@chenenci/streamdown-vue",
+  "name": "flowmd",
   "version": "0.1.0",
-  "description": "A native Vue 3 port of Vercel Streamdown with streaming Markdown, plugins and interactive controls.",
+  "description": "Streaming Markdown for Vue 3, with syntax highlighting, math, diagrams and custom renderers.",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
