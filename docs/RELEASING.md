@@ -17,6 +17,10 @@ this workflow does not publish an npm package.
 
 ## Publishing
 
+The public npm package is `@uraraneko/flowmd`; the project and repository remain
+FlowMD. The publish registry is explicitly set to the public npm registry in
+`package.json`.
+
 1. Complete every item in `docs/PARITY.md` against the pinned source. Resolve differences or document an explicitly accepted framework adaptation.
 2. Update `CHANGELOG.md`, package version and lockfile together. Ensure README examples use the actual package name/version.
 3. From a clean installation, run `pnpm check` and `pnpm test:browser`. Review coverage, browser artifacts and warnings; do not silently exclude failing behavior.
@@ -26,3 +30,14 @@ this workflow does not publish an npm package.
 7. Review `npm publish --dry-run` output. Publishing, tagging and pushing are separate maintainer actions; this repository does not perform them automatically.
 
 When updating upstream, refresh source provenance and the behavior inventory first, then rerun the complete audit. A newer upstream version is not implied by a compatible-looking API.
+
+To publish the checked release artifact, pack it after building and testing, then
+publish the same archive:
+
+```sh
+npm pack --ignore-scripts --pack-destination .cache
+npm publish .cache/uraraneko-flowmd-0.1.0.tgz --ignore-scripts --access public --registry=https://registry.npmjs.org/
+```
+
+Replace the archive version when publishing a later release. Complete the npm
+2FA challenge when prompted.

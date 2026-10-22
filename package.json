@@ -1,5 +1,5 @@
 {
-  "name": "flowmd",
+  "name": "@uraraneko/flowmd",
   "version": "0.1.0",
   "description": "Streaming Markdown for Vue 3, with syntax highlighting, math, diagrams and custom renderers.",
   "type": "module",
@@ -149,6 +149,7 @@
     "vue": "^3.5.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

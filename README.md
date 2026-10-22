@@ -16,32 +16,21 @@ FlowMD renders Markdown as it arrives, including unfinished emphasis, links, tab
 
 ## Installation
 
-FlowMD is currently available from source. The npm package has not been published yet.
+Install FlowMD in your Vue application:
+
+```sh
+npm install @uraraneko/flowmd
+```
 
 Requirements: Vue **3.5+**, an ESM-compatible application, and Node.js **22+** for development or server rendering. The default components use Tailwind CSS utilities; see [Styling](#styling) for setup.
-
-Build a package from the repository using the pnpm version specified in `package.json`:
-
-```sh
-git clone https://github.com/uraraneko/flowmd.git
-cd flowmd
-pnpm install --frozen-lockfile
-pnpm pack --pack-destination .cache
-```
-
-The pack command builds the library automatically. In your application, install the generated archive:
-
-```sh
-pnpm add /path/to/flowmd/.cache/flowmd-0.1.0.tgz
-```
 
 ## Quick start
 
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { Streamdown } from "flowmd";
-import "flowmd/styles.css";
+import { Streamdown } from "@uraraneko/flowmd";
+import "@uraraneko/flowmd/styles.css";
 
 const markdown = ref("## Hello\n\nMarkdown rendered with **FlowMD**.");
 const isStreaming = ref(false);
@@ -87,7 +76,7 @@ For Tailwind CSS v4, include the package's built output in source detection and 
 
 ```css
 @import "tailwindcss";
-@source "../node_modules/flowmd/dist";
+@source "../node_modules/@uraraneko/flowmd/dist";
 
 @theme {
   --color-background: #ffffff;
@@ -101,7 +90,7 @@ For Tailwind CSS v4, include the package's built output in source detection and 
 }
 ```
 
-The values above are a minimal light theme. Use your application's existing tokens when available. For Tailwind CSS v3, add `node_modules/flowmd/dist/**/*.js` to `content` and configure the same colors in your theme.
+The values above are a minimal light theme. Use your application's existing tokens when available. For Tailwind CSS v3, add `node_modules/@uraraneko/flowmd/dist/**/*.js` to `content` and configure the same colors in your theme.
 
 Use `prefix="tw"` with Tailwind v4's `prefix(tw)` convention. Component overrides allow a different design system to provide its own markup and styling.
 
@@ -109,12 +98,12 @@ Use `prefix="tw"` with Tailwind v4's `prefix(tw)` convention. Component override
 
 Plugins are available as separate entry points. Import and register the features your application needs:
 
-| Feature             | Entry point      | Additional dependency    |
-| ------------------- | ---------------- | ------------------------ |
-| Syntax highlighting | `flowmd/code`    | Shiki                    |
-| Math                | `flowmd/math`    | KaTeX and its stylesheet |
-| Diagrams            | `flowmd/mermaid` | Mermaid                  |
-| CJK text handling   | `flowmd/cjk`     | None                     |
+| Feature             | Entry point                 | Additional dependency    |
+| ------------------- | --------------------------- | ------------------------ |
+| Syntax highlighting | `@uraraneko/flowmd/code`    | Shiki                    |
+| Math                | `@uraraneko/flowmd/math`    | KaTeX and its stylesheet |
+| Diagrams            | `@uraraneko/flowmd/mermaid` | Mermaid                  |
+| CJK text handling   | `@uraraneko/flowmd/cjk`     | None                     |
 
 For all four plugins, install the supported peer versions:
 
@@ -124,12 +113,12 @@ pnpm add 'shiki@^4.4.3' 'katex@^0.16.27' 'mermaid@^11.16.1'
 
 ```vue
 <script setup lang="ts">
-import { Streamdown } from "flowmd";
-import { code } from "flowmd/code";
-import { math } from "flowmd/math";
-import { mermaid } from "flowmd/mermaid";
-import { cjk } from "flowmd/cjk";
-import "flowmd/styles.css";
+import { Streamdown } from "@uraraneko/flowmd";
+import { code } from "@uraraneko/flowmd/code";
+import { math } from "@uraraneko/flowmd/math";
+import { mermaid } from "@uraraneko/flowmd/mermaid";
+import { cjk } from "@uraraneko/flowmd/cjk";
+import "@uraraneko/flowmd/styles.css";
 import "katex/dist/katex.min.css";
 
 defineProps<{ markdown: string; isStreaming?: boolean }>();
@@ -146,7 +135,7 @@ const plugins = { code, math, mermaid, cjk };
 </template>
 ```
 
-The math plugin recognizes `$$...$$` by default. Enable single-dollar inline math with `createMathPlugin({ singleDollarTextMath: true })` from `flowmd/math`. The code plugin supports light/dark theme pairs through `createCodePlugin({ themes: [lightTheme, darkTheme] })` from `flowmd/code`.
+The math plugin recognizes `$$...$$` by default. Enable single-dollar inline math with `createMathPlugin({ singleDollarTextMath: true })` from `@uraraneko/flowmd/math`. The code plugin supports light/dark theme pairs through `createCodePlugin({ themes: [lightTheme, darkTheme] })` from `@uraraneko/flowmd/code`.
 
 ## Configuration
 
@@ -170,7 +159,7 @@ See the [API reference](./docs/API.md) for all props, exports, and plugin option
 Use `:controls="false"` to hide all controls, or configure individual features:
 
 ```ts
-import type { ControlsConfig } from "flowmd";
+import type { ControlsConfig } from "@uraraneko/flowmd";
 
 const controls: ControlsConfig = {
   code: { copy: true, download: { filename: "snippet" } },
@@ -188,7 +177,7 @@ Override individual elements while composing the default renderers:
 
 ```ts
 import { defineComponent, h } from "vue";
-import { defaultComponents } from "flowmd";
+import { defaultComponents } from "@uraraneko/flowmd";
 
 const Heading = defineComponent({
   inheritAttrs: false,
