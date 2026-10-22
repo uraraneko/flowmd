@@ -2,6 +2,21 @@
 
 A release is manual. CI validates the repository but does not publish to npm or GitHub.
 
+## GitHub CI
+
+The `Validate` workflow in `.github/workflows/ci.yml` runs automatically on every
+push and pull request. On GitHub, open **Actions → Validate** to see the Node 22
+and Node 24 jobs and expand individual steps for logs. It installs dependencies,
+checks formatting/source parity/types, runs tests with coverage, builds the package,
+verifies an isolated package consumer and runs Chromium tests.
+
+To check the current branch manually, select **Run workflow**. To retry a failed
+run, open it and select **Re-run jobs**. Change the workflow YAML in the repository
+to change the steps; no separate GitHub build configuration is required. Passing
+this workflow does not publish an npm package.
+
+## Publishing
+
 1. Complete every item in `docs/PARITY.md` against the pinned source. Resolve differences or document an explicitly accepted framework adaptation.
 2. Update `CHANGELOG.md`, package version and lockfile together. Ensure README examples use the actual package name/version.
 3. From a clean installation, run `pnpm check` and `pnpm test:browser`. Review coverage, browser artifacts and warnings; do not silently exclude failing behavior.

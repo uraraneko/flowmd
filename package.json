@@ -4,6 +4,14 @@
   "description": "A native Vue 3 port of Vercel Streamdown with streaming Markdown, plugins and interactive controls.",
   "type": "module",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uraraneko/streamdown-vue.git"
+  },
+  "homepage": "https://github.com/uraraneko/streamdown-vue#readme",
+  "bugs": {
+    "url": "https://github.com/uraraneko/streamdown-vue/issues"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

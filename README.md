@@ -1,5 +1,7 @@
 # Streamdown Vue
 
+[![Validate](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml)
+
 A native Vue 3 port of [Vercel Streamdown](https://github.com/vercel/streamdown), targeting **Streamdown 2.7.1** at the commit recorded in [upstream.json](./upstream.json).
 
 Render incomplete Markdown as it streams, with the same repair, block parsing, AST pipeline, default components and interactive controls as the pinned reference. The production package does not depend on React. The vendored React implementation is used only for development and differential tests.
