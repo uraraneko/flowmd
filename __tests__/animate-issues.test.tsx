@@ -8,7 +8,7 @@
  */
 import { act, render } from "./helpers/testing-library-vue";
 import { defineComponent, Fragment as StrictMode, h, onMounted } from "vue";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Streamdown } from "../index";
 import { MAX_ANIMATION_BACKLOG_MS } from "../lib/animate";
 
@@ -24,6 +24,13 @@ const parseDelay = (el: Element): number => {
 };
 
 describe("issue #482 — cross-block stagger serialization", () => {
+  let now = 100;
+  beforeEach(() => {
+    now = 100;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it("delays a new block's first word past the previous block's cascade", async () => {
     const config = {
       animation: "fadeIn" as const,
@@ -44,6 +51,7 @@ describe("issue #482 — cross-block stagger serialization", () => {
     expect(firstPass.length).toBeGreaterThanOrEqual(5);
     expect(Math.max(...firstPass.map(parseDelay))).toBeGreaterThan(0);
 
+    now += 25;
     await act(() => {
       rerender(
         <Streamdown animated={config} isAnimating={true} mode="streaming">
@@ -90,10 +98,12 @@ describe("issue #482 — cross-block stagger serialization", () => {
       container.querySelectorAll("[data-sd-animate]"),
     ).map(parseDelay);
     expect(listDelays.length).toBeGreaterThan(20);
-    const listEndsAt = Math.max(...listDelays);
+    const listLastDelay = Math.max(...listDelays);
+    const listEndsAt = now + listLastDelay;
     // Compressed into the budget (uncapped would be ~1s). Allow +1 for rounding.
-    expect(listEndsAt).toBeLessThanOrEqual(MAX_ANIMATION_BACKLOG_MS + 1);
+    expect(listLastDelay).toBeLessThanOrEqual(MAX_ANIMATION_BACKLOG_MS + 1);
 
+    now += 25;
     await act(() => {
       rerender(
         <Streamdown animated={config} isAnimating={true} mode="streaming">
@@ -108,11 +118,10 @@ describe("issue #482 — cross-block stagger serialization", () => {
     ).map(parseDelay);
     expect(headingDelays.length).toBeGreaterThan(0);
 
-    // Heading waits for the list — not the #482 delay-0 bug.
-    // Delays are relative to each render's `now`, so a few ms of wall-clock
-    // drift between act() frames is fine; absolute order is still preserved.
+    // CSS delays are relative to each render. Compare absolute scheduled times
+    // with a controlled 25ms stream interval, independent of CI execution speed.
     expect(Math.min(...headingDelays)).toBeGreaterThan(0);
-    expect(Math.min(...headingDelays)).toBeGreaterThanOrEqual(listEndsAt - 50);
+    expect(now + Math.min(...headingDelays)).toBeGreaterThanOrEqual(listEndsAt);
   });
 });
 

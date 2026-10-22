@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-const scratch = await mkdtemp(path.join(tmpdir(), "streamdown-vue-consumer-"));
+const scratch = await mkdtemp(path.join(tmpdir(), "flowmd-consumer-"));
 const run = (command, args, cwd = scratch) =>
   execFileSync(command, args, {
     cwd,

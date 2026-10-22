@@ -6,11 +6,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/uraraneko/streamdown-vue.git"
+    "url": "git+https://github.com/uraraneko/flowmd.git"
   },
-  "homepage": "https://github.com/uraraneko/streamdown-vue#readme",
+  "homepage": "https://github.com/uraraneko/flowmd#readme",
   "bugs": {
-    "url": "https://github.com/uraraneko/streamdown-vue/issues"
+    "url": "https://github.com/uraraneko/flowmd/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",

@@ -2,7 +2,7 @@
 
 Streaming Markdown for Vue 3.
 
-[![CI](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/uraraneko/streamdown-vue/actions/workflows/ci.yml)
+[![CI](https://github.com/uraraneko/flowmd/actions/workflows/ci.yml/badge.svg)](https://github.com/uraraneko/flowmd/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
 FlowMD renders Markdown as it arrives, including unfinished emphasis, links, tables, and code fences. It provides native Vue components, configurable renderers, and optional plugins for syntax highlighting, math, diagrams, and CJK text.
@@ -23,8 +23,8 @@ Requirements: Vue **3.5+**, an ESM-compatible application, and Node.js **22+** f
 Build a package from the repository using the pnpm version specified in `package.json`:
 
 ```sh
-git clone https://github.com/uraraneko/streamdown-vue.git
-cd streamdown-vue
+git clone https://github.com/uraraneko/flowmd.git
+cd flowmd
 pnpm install --frozen-lockfile
 pnpm pack --pack-destination .cache
 ```
@@ -32,7 +32,7 @@ pnpm pack --pack-destination .cache
 The pack command builds the library automatically. In your application, install the generated archive:
 
 ```sh
-pnpm add /path/to/streamdown-vue/.cache/flowmd-0.1.0.tgz
+pnpm add /path/to/flowmd/.cache/flowmd-0.1.0.tgz
 ```
 
 ## Quick start
